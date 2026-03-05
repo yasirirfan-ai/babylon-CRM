@@ -188,27 +188,6 @@ function App() {
   ];
 
   const selectedRequest = selectedRequestId ? requests.find(r => r.id === selectedRequestId) : null;
-  const featureLines = auth?.actor === 'internal'
-    ? [
-      'Customer Container, User management, roles and permissions, approval chains',
-      'Brand & Product: SKU management, revisions, lifecycle, PIM',
-      'RFQ management, negotiation, MOQ/discount approvals, quotation',
-      'Order tracking, order modification with approval chain',
-      'Inventory & Production visibility with subscription tiers',
-      'Requests & ticketing, document requests, priority/escalation',
-      'Services marketplace: service catalog, package attachment, chargeable vs free',
-      'R&D collaboration: NPD, reformulation, claim adjustments, negotiation thread',
-      'Customer branding controls: logo/theme, asset distribution, QR/barcode issuance',
-    ]
-    : [
-      'Submit and track requests, documents, and issues with thread comments',
-      'View RFQs, negotiation status, MOQ/discount outcomes',
-      'Track orders, shipments, ETAs, batch/lot allocations',
-      'Receive notifications for RFQ, order, and request events',
-      'Access service packages attached to RFQs/orders',
-      'Collaborate on new product development & reformulation threads',
-      'Download branding assets and request QR/barcodes',
-    ];
 
   if (!auth) {
     return (
@@ -308,13 +287,6 @@ function App() {
               <p className="muted">{s.label}</p>
             </div>
           ))}
-        </section>
-
-        <section className="card" style={{ marginTop: 12 }}>
-          <h3>{auth.actor === 'internal' ? 'Babylon - internal' : 'Customers - external'} capabilities</h3>
-          <ul className="feature-list">
-            {featureLines.map((f) => <li key={f}>{f}</li>)}
-          </ul>
         </section>
 
         {meta && (
