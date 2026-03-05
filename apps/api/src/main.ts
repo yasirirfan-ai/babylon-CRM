@@ -13,6 +13,7 @@ import { notificationsRouter } from './modules/notifications/index.js';
 import { approvalsRouter } from './modules/approvals/index.js';
 import { loadWorkflowConfig } from './modules/workflow/config/workflowConfigLoader.js';
 import { registry } from './modules/workflow/workflowRegistry.js';
+import path from 'path';
 
 // 1. Enforce rigorous JSON workflow boundaries at startup
 const workflowConfig = loadWorkflowConfig();
@@ -23,6 +24,16 @@ export default app;
 
 app.use(cors({ origin: config.corsOrigin }));
 app.use(express.json());
+
+// Serve built web UI (bundled into the function via includeFiles in vercel.json)
+const webDist = path.resolve(process.cwd(), 'apps/web/dist');
+app.use(express.static(webDist));
+app.get('/', (_req, res) => {
+    res.sendFile(path.join(webDist, 'index.html'));
+});
+app.get('/index.html', (_req, res) => {
+    res.sendFile(path.join(webDist, 'index.html'));
+});
 
 // Namespace all API routes under /api so Vercel rewrite + client base path line up.
 const api = express.Router();

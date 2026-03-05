@@ -7,7 +7,8 @@
             "config": {
                 "includeFiles": [
                     "packages/workflows/workflow-pack.schema.json",
-                    "packages/workflows/workflow-pack.v1.json"
+                    "packages/workflows/workflow-pack.v1.json",
+                    "apps/web/dist/**"
                 ]
             }
         },
