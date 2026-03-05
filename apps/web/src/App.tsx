@@ -406,6 +406,16 @@ function App() {
                 <p className="muted tiny">Batch: {orderDetail.order.batch_number || '-'}</p>
                 <p className="muted tiny">Tracking: {orderDetail.order.tracking_number || '-'}</p>
                 <p className="muted tiny">ETA: {orderDetail.order.eta ? new Date(orderDetail.order.eta).toLocaleString() : '-'}</p>
+                {meta && (
+                  <>
+                    <div className="muted tiny">Required docs for state “{orderDetail.order.state}”:</div>
+                    <ul className="mini-list">
+                      {(meta.orderStates.find((s) => s.state === orderDetail.order.state)?.docs || ['Not specified']).map((d) => (
+                        <li key={d}>{d} — <span className="muted">pending (demo)</span></li>
+                      ))}
+                    </ul>
+                  </>
+                )}
                 <div className="muted tiny">Allocations:</div>
                 <ul className="mini-list">
                   {orderDetail.allocations.map((a) => (
