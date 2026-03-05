@@ -11,6 +11,7 @@ import {
   fetchNotifications,
   postRequestMessage,
   transitionRequest,
+  fetchMeta,
   type RequestItem,
   type ThreadMessage,
   type RfqItem,
@@ -73,6 +74,7 @@ function App() {
   const [rfqs, setRfqs] = useState<RfqItem[]>([]);
   const [orders, setOrders] = useState<OrderItem[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [meta, setMeta] = useState<{ orderStates: { state: string; docs: string[]; notes: string }[]; requestStates: string[] } | null>(null);
 
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [thread, setThread] = useState<ThreadMessage[]>([]);
@@ -90,16 +92,18 @@ function App() {
     if (!auth) return;
     const load = async () => {
       try {
-        const [reqs, rfqData, orderData, notifData] = await Promise.all([
+        const [reqs, rfqData, orderData, notifData, metaData] = await Promise.all([
           fetchRequests(auth),
           fetchRfqs(auth),
           fetchOrders(auth),
           fetchNotifications(auth),
+          fetchMeta(),
         ]);
         setRequests(reqs);
         setRfqs(rfqData);
         setOrders(orderData);
         setNotifications(notifData);
+        setMeta(metaData);
 
         if (reqs.length) {
           const first = reqs[0].id;
@@ -301,6 +305,30 @@ function App() {
             {featureLines.map((f) => <li key={f}>{f}</li>)}
           </ul>
         </section>
+
+        {meta && (
+          <section className="card" style={{ marginTop: 12 }}>
+            <h3>State reference</h3>
+            <div className="grid two">
+              <div>
+                <h4>Order states</h4>
+                <ul className="feature-list">
+                  {meta.orderStates.map((s) => (
+                    <li key={s.state}>
+                      <strong>{s.state}</strong>: {s.notes} — Docs: {s.docs.join(', ') || 'N/A'}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <h4>Request states</h4>
+                <ul className="feature-list">
+                  {meta.requestStates.map((s) => <li key={s}>{s}</li>)}
+                </ul>
+              </div>
+            </div>
+          </section>
+        )}
 
         <section className="grid two">
           <div className="card">

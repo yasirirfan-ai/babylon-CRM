@@ -11,6 +11,7 @@ import { rfqRouter } from './modules/rfqs/index.js';
 import { ordersRouter } from './modules/orders/index.js';
 import { notificationsRouter } from './modules/notifications/index.js';
 import { approvalsRouter } from './modules/approvals/index.js';
+import { metaRouter } from './modules/meta/index.js';
 import { loadWorkflowConfig } from './modules/workflow/config/workflowConfigLoader.js';
 import { registry } from './modules/workflow/workflowRegistry.js';
 import path from 'path';
@@ -56,6 +57,7 @@ api.use('/rfqs', rfqRouter);
 api.use('/orders', ordersRouter);
 api.use('/notifications', notificationsRouter);
 api.use('/approvals', approvalsRouter);
+api.use('/meta', metaRouter);
 
 app.use('/api', api);
 

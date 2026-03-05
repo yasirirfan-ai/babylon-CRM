@@ -131,3 +131,15 @@ export async function fetchNotifications(m?: { membershipId?: string; customerId
   const data = await request<{ notifications: NotificationItem[] }>('/notifications', m);
   return data.notifications;
 }
+
+export async function fetchMeta() {
+  return request<{
+    orderStates: { state: string; docs: string[]; notes: string }[];
+    requestStates: string[];
+  }>('/meta/order-states').then((o) =>
+    request<{ requestStates: string[] }>('/meta/request-states').then((r) => ({
+      orderStates: (o as any).orderStates,
+      requestStates: r.requestStates,
+    }))
+  );
+}

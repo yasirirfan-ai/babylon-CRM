@@ -44,6 +44,9 @@ const DEMO = {
         { state: 'confirmed', order_number: 'ORD-2001', tracking_number: 'TRK-2001', batch_number: 'BATCH-01', eta: new Date(Date.now() + 4 * 24 * 3600 * 1000) },
         { state: 'in_production', order_number: 'ORD-2002', tracking_number: 'TRK-2002', batch_number: 'BATCH-02', eta: new Date(Date.now() + 9 * 24 * 3600 * 1000) },
         { state: 'shipped', order_number: 'ORD-2003', tracking_number: 'TRK-2003', batch_number: 'BATCH-03', eta: new Date(Date.now() + 2 * 24 * 3600 * 1000) },
+        { state: 'allocated', order_number: 'ORD-2004', tracking_number: null, batch_number: 'BATCH-04', eta: new Date(Date.now() + 6 * 24 * 3600 * 1000) },
+        { state: 'scheduled', order_number: 'ORD-2005', tracking_number: null, batch_number: 'BATCH-05', eta: new Date(Date.now() + 8 * 24 * 3600 * 1000) },
+        { state: 'on_hold', order_number: 'ORD-2006', tracking_number: null, batch_number: null, eta: null },
     ],
     requests: [
         {
