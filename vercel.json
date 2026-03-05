@@ -23,6 +23,10 @@
         {
             "source": "/api/(.*)",
             "destination": "/apps/api/src/main.ts"
+        },
+        {
+            "source": "/(.*)",
+            "destination": "/apps/web/dist/$1"
         }
     ],
     "installCommand": "npm install",
