@@ -26,7 +26,7 @@
         },
         {
             "source": "/(.*)",
-            "destination": "/apps/web/dist/$1"
+            "destination": "/dist/$1"
         }
     ],
     "installCommand": "npm install",
