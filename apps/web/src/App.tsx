@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import './App.css';
 import logo from './assets/babylon-logo.png';
 import {
@@ -20,26 +20,54 @@ import {
 } from './api';
 
 type Actor = 'customer' | 'internal';
+type AuthCtx = { customerId: string; membershipId: string; actor: Actor };
 
-type AuthCtx = {
-  customerId: string;
-  membershipId: string;
+const USERS: Record<string, { email: string; password: string; actor: Actor }> = {
+  admin: { email: 'admin@babylonll.com', password: 'admin123', actor: 'internal' },
+  customer: { email: 'customer@acme.com', password: 'customer123', actor: 'customer' },
 };
 
-function useAuth(actor: Actor): AuthCtx {
+function buildAuth(actor: Actor): AuthCtx {
   const customerId = import.meta.env.VITE_CUSTOMER_ID as string;
   const customerMembership = import.meta.env.VITE_MEMBERSHIP_ID as string;
-  const internalMembership = (import.meta.env.VITE_INTERNAL_MEMBERSHIP_ID as string | undefined) || customerMembership;
-
-  return useMemo(() => ({
+  const internalMembership =
+    (import.meta.env.VITE_INTERNAL_MEMBERSHIP_ID as string | undefined) || customerMembership;
+  return {
     customerId,
     membershipId: actor === 'internal' ? internalMembership : customerMembership,
-  }), [actor, customerId, customerMembership, internalMembership]);
+    actor,
+  };
 }
 
 function App() {
-  const [actor, setActor] = useState<Actor>('customer');
-  const auth = useAuth(actor);
+  const [auth, setAuth] = useState<AuthCtx | null>(null);
+  const [loginForm, setLoginForm] = useState({ email: '', password: '' });
+  const [loginError, setLoginError] = useState<string | null>(null);
+
+  const handleLogin = () => {
+    const { email, password } = loginForm;
+    if (email === USERS.admin.email && password === USERS.admin.password) {
+      setAuth(buildAuth('internal'));
+      setLoginError(null);
+      return;
+    }
+    if (email === USERS.customer.email && password === USERS.customer.password) {
+      setAuth(buildAuth('customer'));
+      setLoginError(null);
+      return;
+    }
+    setLoginError('Invalid credentials');
+  };
+
+  const logout = () => {
+    setAuth(null);
+    setLoginForm({ email: '', password: '' });
+    setRequests([]);
+    setRfqs([]);
+    setOrders([]);
+    setNotifications([]);
+    setThread([]);
+  };
 
   const [requests, setRequests] = useState<RequestItem[]>([]);
   const [rfqs, setRfqs] = useState<RfqItem[]>([]);
@@ -59,6 +87,7 @@ function App() {
   const [errors, setErrors] = useState<{ load?: string; thread?: string; rfq?: string; order?: string }>({});
 
   useEffect(() => {
+    if (!auth) return;
     const load = async () => {
       try {
         const [reqs, rfqData, orderData, notifData] = await Promise.all([
@@ -98,6 +127,7 @@ function App() {
   const selectRequest = async (id: string) => {
     setSelectedRequestId(id);
     try {
+      if (!auth) return;
       const t = await fetchRequestThread(id, auth);
       setThread(t.messages);
     } catch (e: any) {
@@ -107,6 +137,7 @@ function App() {
 
   const sendComment = async () => {
     if (!selectedRequestId || !comment.trim()) return;
+    if (!auth) return;
     await postRequestMessage(selectedRequestId, comment.trim(), auth);
     setComment('');
     const t = await fetchRequestThread(selectedRequestId, auth);
@@ -115,6 +146,7 @@ function App() {
 
   const doTransition = async (key: string) => {
     if (!selectedRequestId) return;
+    if (!auth) return;
     await transitionRequest(selectedRequestId, key, auth);
     const reqs = await fetchRequests(auth);
     setRequests(reqs);
@@ -125,6 +157,7 @@ function App() {
   const selectOrder = async (id: string) => {
     setSelectedOrderId(id);
     try {
+      if (!auth) return;
       const detail = await fetchOrderDetail(id, auth);
       setOrderDetail(detail);
     } catch (e: any) {
@@ -135,6 +168,7 @@ function App() {
   const selectRfq = async (id: string) => {
     setSelectedRfqId(id);
     try {
+      if (!auth) return;
       const detail = await fetchRfqDetail(id, auth);
       setRfqDetail(detail);
     } catch (e: any) {
@@ -150,6 +184,69 @@ function App() {
   ];
 
   const selectedRequest = selectedRequestId ? requests.find(r => r.id === selectedRequestId) : null;
+  const featureLines = auth?.actor === 'internal'
+    ? [
+      'Customer Container, User management, roles and permissions, approval chains',
+      'Brand & Product: SKU management, revisions, lifecycle, PIM',
+      'RFQ management, negotiation, MOQ/discount approvals, quotation',
+      'Order tracking, order modification with approval chain',
+      'Inventory & Production visibility with subscription tiers',
+      'Requests & ticketing, document requests, priority/escalation',
+      'Services marketplace: service catalog, package attachment, chargeable vs free',
+      'R&D collaboration: NPD, reformulation, claim adjustments, negotiation thread',
+      'Customer branding controls: logo/theme, asset distribution, QR/barcode issuance',
+    ]
+    : [
+      'Submit and track requests, documents, and issues with thread comments',
+      'View RFQs, negotiation status, MOQ/discount outcomes',
+      'Track orders, shipments, ETAs, batch/lot allocations',
+      'Receive notifications for RFQ, order, and request events',
+      'Access service packages attached to RFQs/orders',
+      'Collaborate on new product development & reformulation threads',
+      'Download branding assets and request QR/barcodes',
+    ];
+
+  if (!auth) {
+    return (
+      <div className="shell">
+        <aside className="sidebar">
+          <div className="logo-block">
+            <img src={logo} alt="Babylon" />
+            <p className="eyebrow">Babylon Portal</p>
+          </div>
+        </aside>
+        <main className="content">
+          <header className="topbar">
+            <div>
+              <h1>Login</h1>
+              <p className="muted">Choose demo credentials to view the CRM.</p>
+            </div>
+          </header>
+          <div className="card" style={{ maxWidth: 420 }}>
+            <label>Email</label>
+            <input
+              value={loginForm.email}
+              onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })}
+              placeholder="admin@babylonll.com or customer@acme.com"
+            />
+            <label>Password</label>
+            <input
+              type="password"
+              value={loginForm.password}
+              onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+              placeholder="admin123 or customer123"
+            />
+            {loginError && <p className="error">{loginError}</p>}
+            <button className="primary" onClick={handleLogin}>Login</button>
+            <div className="muted small" style={{ marginTop: 8 }}>
+              Admin: admin@babylonll.com / admin123 (internal view) <br />
+              Customer: customer@acme.com / customer123 (customer view)
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="shell">
@@ -161,10 +258,11 @@ function App() {
         <div className="actor-switch">
           <p>View</p>
           <div className="switch">
-            <button className={actor === 'customer' ? 'active' : ''} onClick={() => setActor('customer')}>Customer</button>
-            <button className={actor === 'internal' ? 'active' : ''} onClick={() => setActor('internal')}>Babylon</button>
+            <button className={auth.actor === 'customer' ? 'active' : ''} onClick={() => setAuth(buildAuth('customer'))}>Customer</button>
+            <button className={auth.actor === 'internal' ? 'active' : ''} onClick={() => setAuth(buildAuth('internal'))}>Babylon</button>
           </div>
           <small className="muted">Controls which actions are enabled</small>
+          <button className="link danger" onClick={logout}>Logout</button>
         </div>
         <div className="mini-card">
           <p className="muted small">Customer ID</p>
@@ -195,6 +293,13 @@ function App() {
               <p className="muted">{s.label}</p>
             </div>
           ))}
+        </section>
+
+        <section className="card" style={{ marginTop: 12 }}>
+          <h3>{auth.actor === 'internal' ? 'Babylon - internal' : 'Customers - external'} capabilities</h3>
+          <ul className="feature-list">
+            {featureLines.map((f) => <li key={f}>{f}</li>)}
+          </ul>
         </section>
 
         <section className="grid two">
@@ -229,7 +334,7 @@ function App() {
               <h2>Thread</h2>
               <div className="actions">
                 <button onClick={() => doTransition('submit_request')}>Submit</button>
-                {actor === 'internal' && (
+                {auth.actor === 'internal' && (
                   <>
                     <button className="ghost" onClick={() => doTransition('start_processing')}>Start</button>
                     <button className="ghost" onClick={() => doTransition('complete_request')}>Complete</button>
