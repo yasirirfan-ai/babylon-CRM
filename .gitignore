@@ -1,0 +1,29 @@
+# Node
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+
+# Builds
+**/dist
+**/build
+**/.turbo
+
+# Environment
+.env
+*.env.local
+apps/web/.env.local
+apps/api/.env.local
+
+# OS
+.DS_Store
+
+# Vercel/IDE
+.vercel
+.vscode
+.idea
+
+# Drizzle artifacts
+apps/api/drizzle/*.sqlite

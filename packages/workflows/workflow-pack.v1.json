@@ -1,0 +1,78 @@
+{
+    "workflows": [
+        {
+            "id": "wf-request-v1",
+            "name": "Standard Request Workflow",
+            "entity_type": "request",
+            "version": 1,
+            "states": [
+                {
+                    "name": "draft",
+                    "is_initial": true
+                },
+                {
+                    "name": "submitted"
+                },
+                {
+                    "name": "in_progress"
+                },
+                {
+                    "name": "completed",
+                    "is_terminal": true
+                },
+                {
+                    "name": "rejected",
+                    "is_terminal": true
+                }
+            ],
+            "transitions": [
+                {
+                    "key": "submit_request",
+                    "name": "Submit Request",
+                    "from_state": "draft",
+                    "to_state": "submitted",
+                    "trigger": {
+                        "actor_type": [
+                            "customer"
+                        ],
+                        "permissions": []
+                    }
+                },
+                {
+                    "key": "start_processing",
+                    "name": "Start Processing",
+                    "from_state": "submitted",
+                    "to_state": "in_progress",
+                    "trigger": {
+                        "actor_type": [
+                            "internal"
+                        ],
+                        "permissions": [
+                            "requests:manage"
+                        ]
+                    },
+                    "guards": [
+                        {
+                            "name": "hasAssignedAgent",
+                            "params": {}
+                        }
+                    ]
+                },
+                {
+                    "key": "complete_request",
+                    "name": "Complete Request",
+                    "from_state": "in_progress",
+                    "to_state": "completed",
+                    "trigger": {
+                        "actor_type": [
+                            "internal"
+                        ],
+                        "permissions": [
+                            "requests:manage"
+                        ]
+                    }
+                }
+            ]
+        }
+    ]
+}

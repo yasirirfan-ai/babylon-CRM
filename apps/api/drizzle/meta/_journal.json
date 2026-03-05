@@ -1,0 +1,55 @@
+{
+  "version": "5",
+  "dialect": "pg",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1771985055253,
+      "tag": "0000_flimsy_anita_blake",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1771987066756,
+      "tag": "0001_optimal_nemesis",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1771989066756,
+      "tag": "0002_approval_scaffold",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1771991066756,
+      "tag": "0003_rfqs_orders",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1771993066756,
+      "tag": "0004_orders_tracking",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1771995066756,
+      "tag": "0005_rfqs_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1771997066756,
+      "tag": "0006_outbox_status",
+      "breakpoints": true
+    }
+  ]
+}
