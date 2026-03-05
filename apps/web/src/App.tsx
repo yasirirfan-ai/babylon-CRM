@@ -220,31 +220,42 @@ function App() {
           </div>
         </aside>
         <main className="content">
-          <header className="topbar">
+          <div className="auth-hero">
             <div>
-              <h1>Login</h1>
-              <p className="muted">Choose demo credentials to view the CRM.</p>
+              <div className="hero-badge">Dual-side portal · Babylon & Customers</div>
+              <h1 className="auth-title">Sign in to the Babylon Console</h1>
+              <p className="auth-subtitle">Use the demo credentials to preview both internal and customer experiences.</p>
+              <ul className="muted-list">
+                <li>Admin (internal): admin@babylonll.com / admin123</li>
+                <li>Customer: customer@acme.com / customer123</li>
+              </ul>
             </div>
-          </header>
-          <div className="card" style={{ maxWidth: 420 }}>
-            <label>Email</label>
-            <input
-              value={loginForm.email}
-              onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })}
-              placeholder="admin@babylonll.com or customer@acme.com"
-            />
-            <label>Password</label>
-            <input
-              type="password"
-              value={loginForm.password}
-              onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
-              placeholder="admin123 or customer123"
-            />
-            {loginError && <p className="error">{loginError}</p>}
-            <button className="primary" onClick={handleLogin}>Login</button>
-            <div className="muted small" style={{ marginTop: 8 }}>
-              Admin: admin@babylonll.com / admin123 (internal view) <br />
-              Customer: customer@acme.com / customer123 (customer view)
+            <div className="auth-card">
+              <label className="muted small">Email</label>
+              <input
+                className="input"
+                value={loginForm.email}
+                onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })}
+                placeholder="admin@babylonll.com or customer@acme.com"
+              />
+              <label className="muted small" style={{ marginTop: 10 }}>Password</label>
+              <input
+                className="input"
+                type="password"
+                value={loginForm.password}
+                onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+                placeholder="••••••"
+              />
+              <div className="pill-row">
+                <button className="pill-btn" onClick={() => setLoginForm({ email: USERS.admin.email, password: USERS.admin.password })}>
+                  Use admin (internal)
+                </button>
+                <button className="pill-btn" onClick={() => setLoginForm({ email: USERS.customer.email, password: USERS.customer.password })}>
+                  Use customer (external)
+                </button>
+              </div>
+              {loginError && <p className="error">{loginError}</p>}
+              <button className="primary" style={{ width: '100%', marginTop: 10 }} onClick={handleLogin}>Login</button>
             </div>
           </div>
         </main>

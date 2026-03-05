@@ -20,6 +20,7 @@ body {
   display: grid;
   grid-template-columns: 240px 1fr;
   min-height: 100vh;
+  background: radial-gradient(120% 120% at 12% 18%, #f1e8db 0, #f8f5ef 45%, #fbf9f5 65%, #ffffff 100%);
 }
 
 .sidebar {
@@ -51,6 +52,105 @@ body {
   padding: 28px;
   display: grid;
   gap: 18px;
+}
+
+.auth-hero {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 48px;
+  align-items: center;
+  min-height: 78vh;
+}
+
+.auth-card {
+  background: #ffffff;
+  border: 1px solid rgba(26, 35, 64, 0.08);
+  border-radius: 18px;
+  padding: 28px;
+  box-shadow: 0 18px 38px rgba(26, 35, 64, 0.12);
+  max-width: 500px;
+}
+
+.auth-title {
+  font-size: 30px;
+  margin: 0 0 6px;
+  color: #1f1a11;
+}
+
+.auth-subtitle {
+  color: #6c5b46;
+  margin: 0 0 22px;
+  font-size: 15px;
+}
+
+.input {
+  width: 100%;
+  border: 1px solid #e3d7c8;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 14px;
+  background: #fffdf9;
+}
+
+.input + .input { margin-top: 12px; }
+
+.pill-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 14px 0 10px;
+}
+
+.pill-btn {
+  border: 1px solid #d8c8b2;
+  background: #fffaf2;
+  color: #433520;
+  border-radius: 999px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-weight: 700;
+  transition: all 0.15s ease;
+}
+.pill-btn:hover {
+  border-color: #c39a5c;
+  box-shadow: 0 6px 18px rgba(195, 154, 92, 0.18);
+}
+
+.primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: linear-gradient(135deg, #c49b63, #a87d3f);
+  color: #fff;
+  padding: 12px 16px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  box-shadow: 0 10px 30px rgba(164, 125, 63, 0.25);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.primary:hover { transform: translateY(-2px); box-shadow: 0 12px 34px rgba(164, 125, 63, 0.3); }
+
+.muted-list {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: #6c5b46;
+  line-height: 1.5;
+}
+
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(164, 125, 63, 0.12);
+  border: 1px solid rgba(164, 125, 63, 0.3);
+  border-radius: 999px;
+  color: #4a371b;
+  font-weight: 700;
+  width: fit-content;
 }
 
 .topbar { display: flex; justify-content: space-between; align-items: flex-start; }
