@@ -547,6 +547,10 @@ function App() {
       );
     }
 
+    const canSubmit = selectedRequest.state === 'draft';
+    const canStart = auth?.actor === 'internal' && selectedRequest.state === 'submitted';
+    const canComplete = auth?.actor === 'internal' && selectedRequest.state === 'in_progress';
+
     return (
       <section className="detail-wrap">
         <div className="section-head">
@@ -560,18 +564,20 @@ function App() {
             </p>
           </div>
           <div className="action-row">
-            <button className="inline-btn" onClick={() => runTransition('submit_request')}>
-              Submit
-            </button>
-            {auth?.actor === 'internal' && (
-              <>
-                <button className="inline-btn light" onClick={() => runTransition('start_processing')}>
-                  Start
-                </button>
-                <button className="inline-btn light" onClick={() => runTransition('complete_request')}>
-                  Complete
-                </button>
-              </>
+            {canSubmit && (
+              <button className="inline-btn" onClick={() => runTransition('submit_request')}>
+                Submit
+              </button>
+            )}
+            {canStart && (
+              <button className="inline-btn light" onClick={() => runTransition('start_processing')}>
+                Start
+              </button>
+            )}
+            {canComplete && (
+              <button className="inline-btn light" onClick={() => runTransition('complete_request')}>
+                Complete
+              </button>
             )}
           </div>
         </div>
