@@ -178,7 +178,7 @@ async function main() {
 
     console.log('Starting API and web dev servers...');
     spawnLongRunning(npmCommand, ['--workspace', '@babylon/api', 'exec', '--', 'tsx', 'watch', 'src/main.ts'], 'API');
-    spawnLongRunning(npmCommand, ['--workspace', 'web', 'run', 'dev'], 'Web');
+    spawnLongRunning(npmCommand, ['--workspace', '@babylon/web', 'run', 'dev'], 'Web');
 
     console.log('Dev stack is up. Press Ctrl+C to stop everything.');
 }

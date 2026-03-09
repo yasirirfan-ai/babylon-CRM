@@ -9,7 +9,7 @@
   "scripts": {
     "dev:all": "npm run dev",
     "dev:api": "npm --workspace @babylon/api exec -- tsx watch src/main.ts",
-    "dev:web": "npm --workspace web run dev",
+    "dev:web": "npm --workspace @babylon/web run dev",
     "build": "npm run build --workspaces --if-present",
     "dev": "node scripts/dev-all.mjs",
     "test": "npm run test --workspaces --if-present"

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import './App.css';
 import logo from './assets/babylon-logo.png';
 import {
@@ -12,13 +12,10 @@ import {
   postRequestMessage,
   transitionRequest,
   fetchMeta,
-  fetchCatalog,
   fetchServices,
-  fetchRd,
   fetchServiceAssignments,
   assignService,
   approveService,
-  advanceRd,
   fetchInventoryEvents,
   type RequestItem,
   type ThreadMessage,
@@ -27,34 +24,114 @@ import {
   type NotificationItem,
   type OrderDetail,
 } from './api';
-import { TabNav, type TabKey } from './components/TabNav';
 import { useOrderDocuments } from './hooks/useDocuments';
 
 type Actor = 'customer' | 'internal';
-type AuthCtx = { customerId: string; membershipId: string; actor: Actor };
+type PageKey =
+  | 'dashboard'
+  | 'requests'
+  | 'request-detail'
+  | 'rfqs'
+  | 'rfq-detail'
+  | 'orders'
+  | 'order-detail'
+  | 'notifications';
 
-const USERS: Record<string, { email: string; password: string; actor: Actor }> = {
-  admin: { email: 'admin@babylonll.com', password: 'admin123', actor: 'internal' },
-  customer: { email: 'customer@acme.com', password: 'customer123', actor: 'customer' },
+type AuthCtx = {
+  customerId: string;
+  membershipId: string;
+  actor: Actor;
+  name: string;
+  email: string;
+};
+
+type ServiceItem = {
+  id: string;
+  name: string;
+  attachTo: string;
+  chargeable: boolean;
+  status: string;
+};
+
+type AppErrors = {
+  load?: string;
+  thread?: string;
+  rfq?: string;
+  order?: string;
+  action?: string;
+};
+
+const USER_PRESETS: Record<Actor, { name: string; email: string; password: string }> = {
+  internal: {
+    name: 'Alice Internal',
+    email: 'alice@babylon.internal',
+    password: 'internal123',
+  },
+  customer: {
+    name: 'Bob Acme',
+    email: 'bob@acme.com',
+    password: 'customer123',
+  },
 };
 
 function buildAuth(actor: Actor): AuthCtx {
-  const customerId = import.meta.env.VITE_CUSTOMER_ID as string;
-  const customerMembership = import.meta.env.VITE_MEMBERSHIP_ID as string;
+  const customerId = (import.meta.env.VITE_CUSTOMER_ID as string) || 'demo-customer';
+  const customerMembership = (import.meta.env.VITE_MEMBERSHIP_ID as string) || 'demo-membership';
   const internalMembership =
     (import.meta.env.VITE_INTERNAL_MEMBERSHIP_ID as string | undefined) || customerMembership;
+
   return {
     customerId,
     membershipId: actor === 'internal' ? internalMembership : customerMembership,
     actor,
+    name: USER_PRESETS[actor].name,
+    email: USER_PRESETS[actor].email,
   };
+}
+
+function formatDate(value?: string | null): string {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleDateString();
+}
+
+function formatDateTime(value?: string | null): string {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleString();
+}
+
+function getPageLabel(page: PageKey): string {
+  switch (page) {
+    case 'dashboard':
+      return 'Dashboard';
+    case 'requests':
+      return 'Requests';
+    case 'request-detail':
+      return 'Request Detail';
+    case 'rfqs':
+      return 'RFQs';
+    case 'rfq-detail':
+      return 'RFQ Detail';
+    case 'orders':
+      return 'Orders';
+    case 'order-detail':
+      return 'Order Detail';
+    case 'notifications':
+      return 'Notifications';
+    default:
+      return 'CRM';
+  }
 }
 
 function App() {
   const [auth, setAuth] = useState<AuthCtx | null>(null);
+  const [page, setPage] = useState<PageKey>('dashboard');
+
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
   const [loginError, setLoginError] = useState<string | null>(null);
-  const [tab, setTab] = useState<TabKey>('dashboard');
 
   const [requests, setRequests] = useState<RequestItem[]>([]);
   const [rfqs, setRfqs] = useState<RfqItem[]>([]);
@@ -64,33 +141,30 @@ function App() {
     orderStates: { state: string; docs: string[]; notes: string }[];
     requestStates: string[];
   } | null>(null);
-  const [catalog, setCatalog] = useState<{ id: string; name: string; skus: any[] }[]>([]);
-  const [services, setServices] = useState<
-    { id: string; name: string; attachTo: string; chargeable: boolean; status: string }[]
-  >([]);
-  const [rdRequests, setRdRequests] = useState<
-    { id: string; title: string; state: string; owner: string; customer_visible: boolean }[]
-  >([]);
+  const [services, setServices] = useState<ServiceItem[]>([]);
   const [inventoryEvents, setInventoryEvents] = useState<
     { ts: string; type: string; order_number: string; detail: string }[]
   >([]);
 
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
-  const [thread, setThread] = useState<ThreadMessage[]>([]);
-
-  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
-  const [orderDetail, setOrderDetail] = useState<OrderDetail | null>(null);
-  const [serviceAssignments, setServiceAssignments] = useState<{ serviceId: string; status: string }[]>([]);
-
   const [selectedRfqId, setSelectedRfqId] = useState<string | null>(null);
-  const [rfqDetail, setRfqDetail] = useState<{ rfq: RfqItem; items: { sku: string; qty: number }[] } | null>(
-    null
-  );
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+
+  const [thread, setThread] = useState<ThreadMessage[]>([]);
+  const [rfqDetail, setRfqDetail] = useState<{
+    rfq: RfqItem;
+    items: { sku: string; qty: number }[];
+  } | null>(null);
+  const [orderDetail, setOrderDetail] = useState<OrderDetail | null>(null);
+  const [serviceAssignments, setServiceAssignments] = useState<
+    { serviceId: string; status: string }[]
+  >([]);
 
   const [comment, setComment] = useState('');
-  const [errors, setErrors] = useState<{ load?: string; thread?: string; rfq?: string; order?: string }>({});
   const [newDocName, setNewDocName] = useState('');
   const [selectedServiceId, setSelectedServiceId] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [errors, setErrors] = useState<AppErrors>({});
 
   const {
     docs: orderDocs,
@@ -100,597 +174,889 @@ function App() {
     error: docError,
   } = useOrderDocuments(selectedOrderId);
 
+  const selectedRequest = useMemo(
+    () => requests.find((request) => request.id === selectedRequestId) || null,
+    [requests, selectedRequestId],
+  );
+
+  const activeNav: 'dashboard' | 'requests' | 'rfqs' | 'orders' | 'notifications' = (() => {
+    if (page === 'request-detail') return 'requests';
+    if (page === 'rfq-detail') return 'rfqs';
+    if (page === 'order-detail') return 'orders';
+    if (
+      page === 'dashboard' ||
+      page === 'requests' ||
+      page === 'rfqs' ||
+      page === 'orders' ||
+      page === 'notifications'
+    ) {
+      return page;
+    }
+    return 'dashboard';
+  })();
+
+  const loadWorkspace = async (session: AuthCtx) => {
+    setIsLoading(true);
+    setErrors({});
+    try {
+      const [requestData, rfqData, orderData, notificationData, metaData, servicesData, eventsData] =
+        await Promise.all([
+          fetchRequests(session),
+          fetchRfqs(session),
+          fetchOrders(session),
+          fetchNotifications(session),
+          fetchMeta(),
+          fetchServices(),
+          fetchInventoryEvents(),
+        ]);
+
+      setRequests(requestData);
+      setRfqs(rfqData);
+      setOrders(orderData);
+      setNotifications(notificationData);
+      setMeta(metaData);
+      setServices(servicesData.services);
+      setInventoryEvents(eventsData.events);
+
+      setSelectedRequestId(
+        (current) => requestData.find((item) => item.id === current)?.id || requestData[0]?.id || null,
+      );
+      setSelectedRfqId(
+        (current) => rfqData.find((item) => item.id === current)?.id || rfqData[0]?.id || null,
+      );
+      setSelectedOrderId(
+        (current) => orderData.find((item) => item.id === current)?.id || orderData[0]?.id || null,
+      );
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to load workspace';
+      setErrors({ load: message });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!auth) return;
-    const load = async () => {
-      try {
-        const [reqs, rfqData, orderData, notifData, metaData, catalogData, servicesData, rdData, inventoryData] =
-          await Promise.all([
-            fetchRequests(auth),
-            fetchRfqs(auth),
-            fetchOrders(auth),
-            fetchNotifications(auth),
-            fetchMeta(),
-            fetchCatalog(),
-            fetchServices(),
-            fetchRd(),
-            fetchInventoryEvents(),
-          ]);
-
-        setRequests(reqs);
-        setRfqs(rfqData);
-        setOrders(orderData);
-        setNotifications(notifData);
-        setMeta(metaData);
-        setCatalog(catalogData.brands);
-        setServices(servicesData.services);
-        setRdRequests(rdData.rdRequests);
-        setInventoryEvents(inventoryData.events);
-
-        if (reqs.length) await selectRequest(reqs[0].id, false);
-        if (orderData.length) await selectOrder(orderData[0].id, false);
-        if (rfqData.length) await selectRfq(rfqData[0].id, false);
-      } catch (e: any) {
-        setErrors({ load: e.message });
-      }
-    };
-    load();
+    void loadWorkspace(auth);
   }, [auth]);
 
   useEffect(() => {
-    loadOrderDocs();
-  }, [selectedOrderId, loadOrderDocs]);
+    if (!auth || !selectedRequestId) {
+      setThread([]);
+      return;
+    }
+
+    const loadThread = async () => {
+      try {
+        const data = await fetchRequestThread(selectedRequestId, auth);
+        setThread(data.messages);
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Failed to load request thread';
+        setErrors((current) => ({ ...current, thread: message }));
+      }
+    };
+
+    void loadThread();
+  }, [auth, selectedRequestId]);
+
+  useEffect(() => {
+    if (!auth || !selectedRfqId) {
+      setRfqDetail(null);
+      return;
+    }
+
+    const loadDetail = async () => {
+      try {
+        const detail = await fetchRfqDetail(selectedRfqId, auth);
+        setRfqDetail(detail);
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Failed to load RFQ detail';
+        setErrors((current) => ({ ...current, rfq: message }));
+      }
+    };
+
+    void loadDetail();
+  }, [auth, selectedRfqId]);
+
+  useEffect(() => {
+    if (!auth || !selectedOrderId) {
+      setOrderDetail(null);
+      setServiceAssignments([]);
+      return;
+    }
+
+    const loadDetail = async () => {
+      try {
+        const [detail, assignments] = await Promise.all([
+          fetchOrderDetail(selectedOrderId, auth),
+          fetchServiceAssignments(selectedOrderId),
+        ]);
+        setOrderDetail(detail);
+        setServiceAssignments(assignments.assignments);
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Failed to load order detail';
+        setErrors((current) => ({ ...current, order: message }));
+      }
+    };
+
+    void loadDetail();
+  }, [auth, selectedOrderId]);
+
+  useEffect(() => {
+    void loadOrderDocs();
+  }, [loadOrderDocs, selectedOrderId]);
 
   const handleLogin = () => {
-    const { email, password } = loginForm;
-    if (email === USERS.admin.email && password === USERS.admin.password) {
-      setAuth(buildAuth('internal'));
-      setLoginError(null);
+    const normalizedEmail = loginForm.email.trim().toLowerCase();
+    const matchedActor = (Object.keys(USER_PRESETS) as Actor[]).find((actor) => {
+      const preset = USER_PRESETS[actor];
+      return preset.email === normalizedEmail && preset.password === loginForm.password;
+    });
+
+    if (!matchedActor) {
+      setLoginError('Invalid email or password');
       return;
     }
-    if (email === USERS.customer.email && password === USERS.customer.password) {
-      setAuth(buildAuth('customer'));
-      setLoginError(null);
-      return;
-    }
-    setLoginError('Invalid credentials');
+
+    setAuth(buildAuth(matchedActor));
+    setLoginError(null);
+    setPage('dashboard');
   };
 
   const logout = () => {
     setAuth(null);
+    setPage('dashboard');
     setLoginForm({ email: '', password: '' });
+    setLoginError(null);
     setRequests([]);
     setRfqs([]);
     setOrders([]);
     setNotifications([]);
-    setThread([]);
     setMeta(null);
-    setCatalog([]);
     setServices([]);
-    setRdRequests([]);
     setInventoryEvents([]);
     setSelectedRequestId(null);
-    setSelectedOrderId(null);
     setSelectedRfqId(null);
+    setSelectedOrderId(null);
+    setThread([]);
+    setRfqDetail(null);
+    setOrderDetail(null);
     setServiceAssignments([]);
+    setComment('');
     setNewDocName('');
     setSelectedServiceId('');
-    setTab('dashboard');
+    setErrors({});
   };
 
-  const selectRequest = async (id: string, moveToTab = true) => {
+  const switchActor = (actor: Actor) => {
+    setAuth(buildAuth(actor));
+    setPage('dashboard');
+  };
+
+  const openRequestDetail = (id: string) => {
     setSelectedRequestId(id);
-    if (moveToTab) setTab('requests');
-    try {
-      if (!auth) return;
-      const t = await fetchRequestThread(id, auth);
-      setThread(t.messages);
-    } catch (e: any) {
-      setErrors((prev) => ({ ...prev, thread: e.message }));
-    }
+    setPage('request-detail');
+    setErrors((current) => ({ ...current, thread: undefined, action: undefined }));
+  };
+
+  const openRfqDetail = (id: string) => {
+    setSelectedRfqId(id);
+    setPage('rfq-detail');
+    setErrors((current) => ({ ...current, rfq: undefined }));
+  };
+
+  const openOrderDetail = (id: string) => {
+    setSelectedOrderId(id);
+    setPage('order-detail');
+    setErrors((current) => ({ ...current, order: undefined, action: undefined }));
   };
 
   const sendComment = async () => {
-    if (!selectedRequestId || !comment.trim()) return;
-    if (!auth) return;
-    await postRequestMessage(selectedRequestId, comment.trim(), auth);
-    setComment('');
-    const t = await fetchRequestThread(selectedRequestId, auth);
-    setThread(t.messages);
-  };
+    if (!auth || !selectedRequestId || !comment.trim()) return;
 
-  const doTransition = async (key: string) => {
-    if (!selectedRequestId) return;
-    if (!auth) return;
-    await transitionRequest(selectedRequestId, key, auth);
-    const reqs = await fetchRequests(auth);
-    setRequests(reqs);
-    const t = await fetchRequestThread(selectedRequestId, auth);
-    setThread(t.messages);
-  };
-
-  const selectOrder = async (id: string, moveToTab = true) => {
-    setSelectedOrderId(id);
-    if (moveToTab) setTab('orders');
     try {
-      if (!auth) return;
-      const detail = await fetchOrderDetail(id, auth);
-      setOrderDetail(detail);
-      const assignments = await fetchServiceAssignments(id);
-      setServiceAssignments(assignments.assignments);
-    } catch (e: any) {
-      setErrors((prev) => ({ ...prev, order: e.message }));
+      await postRequestMessage(selectedRequestId, comment.trim(), auth);
+      setComment('');
+      const threadData = await fetchRequestThread(selectedRequestId, auth);
+      setThread(threadData.messages);
+      setErrors((current) => ({ ...current, action: undefined, thread: undefined }));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unable to post comment';
+      setErrors((current) => ({ ...current, action: message }));
     }
   };
 
-  const selectRfq = async (id: string, moveToTab = true) => {
-    setSelectedRfqId(id);
-    if (moveToTab) setTab('rfqs');
+  const runTransition = async (transitionKey: string) => {
+    if (!auth || !selectedRequestId) return;
+
     try {
-      if (!auth) return;
-      const detail = await fetchRfqDetail(id, auth);
-      setRfqDetail(detail);
-    } catch (e: any) {
-      setErrors((prev) => ({ ...prev, rfq: e.message }));
+      const result = await transitionRequest(selectedRequestId, transitionKey, auth);
+      const latestRequests = await fetchRequests(auth);
+      const threadData = await fetchRequestThread(selectedRequestId, auth);
+      setRequests(latestRequests);
+      setThread(threadData.messages);
+
+      if ((result as { status?: string }).status === 'pending_approval') {
+        setErrors((current) => ({ ...current, action: 'Transition sent for approval' }));
+      } else {
+        setErrors((current) => ({ ...current, action: undefined }));
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unable to execute transition';
+      setErrors((current) => ({ ...current, action: message }));
     }
   };
 
-  const handleUploadDoc = async () => {
+  const attachService = async () => {
+    if (!selectedOrderId || !selectedServiceId) return;
+
+    try {
+      const response = await assignService(selectedOrderId, selectedServiceId);
+      setServiceAssignments(response.assignments);
+      setSelectedServiceId('');
+      setErrors((current) => ({ ...current, action: undefined }));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unable to attach service';
+      setErrors((current) => ({ ...current, action: message }));
+    }
+  };
+
+  const markServiceApproved = async (serviceId: string) => {
+    if (!selectedOrderId) return;
+
+    try {
+      const response = await approveService(selectedOrderId, serviceId);
+      setServiceAssignments(response.assignments);
+      setErrors((current) => ({ ...current, action: undefined }));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unable to approve service';
+      setErrors((current) => ({ ...current, action: message }));
+    }
+  };
+
+  const uploadDocument = async () => {
     if (!newDocName.trim()) return;
     await uploadOrderDoc(newDocName.trim(), orderDetail?.order.state);
     setNewDocName('');
   };
 
-  const handleAttachService = async () => {
-    if (!selectedOrderId || !selectedServiceId) return;
-    const resp = await assignService(selectedOrderId, selectedServiceId);
-    setServiceAssignments(resp.assignments);
-  };
-
-  const handleApproveService = async (serviceId: string) => {
-    if (!selectedOrderId) return;
-    const resp = await approveService(selectedOrderId, serviceId);
-    setServiceAssignments(resp.assignments);
-  };
-
-  const nextRdState = async (id: string) => {
-    await advanceRd(id);
-    const rd = await fetchRd();
-    setRdRequests(rd.rdRequests);
-  };
-
-  const selectedRequest = selectedRequestId ? requests.find((r) => r.id === selectedRequestId) : null;
-  const orderEvents = orderDetail
-    ? inventoryEvents.filter((e) => e.order_number === orderDetail.order.order_number)
-    : inventoryEvents.slice(0, 4);
-
-  const stats = [
-    { label: 'Requests', value: requests.length },
-    { label: 'RFQs', value: rfqs.length },
-    { label: 'Orders', value: orders.length },
-    { label: 'Notifications', value: notifications.length },
-  ];
-
-  if (!auth) {
-    return (
-      <div className="shell">
-        <aside className="sidebar">
-          <div className="logo-block">
-            <img src={logo} alt="Babylon" />
-            <p className="eyebrow">Babylon Portal</p>
-          </div>
-        </aside>
-        <main className="content">
-          <div className="auth-hero">
-            <div>
-              <div className="hero-badge">Dual-side portal · Babylon & Customers</div>
-              <h1 className="auth-title">Sign in to the Babylon Console</h1>
-              <p className="auth-subtitle">Use the demo credentials to preview both internal and customer experiences.</p>
-              <ul className="muted-list">
-                <li>Admin (internal): admin@babylonll.com / admin123</li>
-                <li>Customer: customer@acme.com / customer123</li>
-              </ul>
-            </div>
-            <div className="auth-card">
-              <label className="muted small">Email</label>
-              <input
-                className="input"
-                value={loginForm.email}
-                onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })}
-                placeholder="admin@babylonll.com or customer@acme.com"
-              />
-              <label className="muted small" style={{ marginTop: 10 }}>Password</label>
-              <input
-                className="input"
-                type="password"
-                value={loginForm.password}
-                onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
-                placeholder="••••••"
-              />
-              <div className="pill-row">
-                <button className="pill-btn" onClick={() => setLoginForm({ email: USERS.admin.email, password: USERS.admin.password })}>
-                  Use admin (internal)
-                </button>
-                <button className="pill-btn" onClick={() => setLoginForm({ email: USERS.customer.email, password: USERS.customer.password })}>
-                  Use customer (external)
-                </button>
-              </div>
-              {loginError && <p className="error">{loginError}</p>}
-              <button className="primary" style={{ width: '100%', marginTop: 10 }} onClick={handleLogin}>Login</button>
-            </div>
-          </div>
-        </main>
-      </div>
-    );
-  }
-
   const renderDashboard = () => (
     <>
       <section className="stats-grid">
-        {stats.map((s) => (
-          <div key={s.label} className="card stat">
-            <p className="stat-value">{s.value}</p>
-            <p className="muted">{s.label}</p>
-          </div>
-        ))}
+        <article className="stat-card">
+          <p className="stat-label">Open Requests</p>
+          <p className="stat-value">{requests.length}</p>
+        </article>
+        <article className="stat-card">
+          <p className="stat-label">RFQs</p>
+          <p className="stat-value">{rfqs.length}</p>
+        </article>
+        <article className="stat-card">
+          <p className="stat-label">Orders</p>
+          <p className="stat-value">{orders.length}</p>
+        </article>
+        <article className="stat-card">
+          <p className="stat-label">Notifications</p>
+          <p className="stat-value">{notifications.length}</p>
+        </article>
       </section>
 
-      <section className="grid two">
-        <div className="card">
-          <div className="section-head">
-            <h3>Catalog & SKUs</h3>
-            <span className="muted">Brand · SKU · MOQ</span>
-          </div>
-          <div className="list small">
-            {catalog.map((b) => (
-              <div key={b.id} className="row-line">
-                <div className="req-title">{b.name}</div>
-                <div className="mini-list">
-                  {b.skus.map((s: any) => (
-                    <div key={s.id} className="muted tiny">
-                      {s.name} — MOQ {s.moq} · rev {s.revisions[0]?.version ?? 'n/a'}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-            {catalog.length === 0 && <p className="muted">No catalog items.</p>}
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="section-head">
-            <h3>R&D collaborations</h3>
-            <span className="muted">NPD / Reformulation</span>
-          </div>
-          <div className="list small">
-            {rdRequests.map((r) => (
-              <div key={r.id} className="row-line">
-                <span className="pill tiny">{r.state}</span>
-                <div className="req-title">{r.title}</div>
-                <button className="link-btn" onClick={() => nextRdState(r.id)}>Advance</button>
-              </div>
-            ))}
-            {rdRequests.length === 0 && <p className="muted">No R&D items.</p>}
-          </div>
-        </div>
+      <section className="quick-grid">
+        <article className="quick-card">
+          <h3>Requests Queue</h3>
+          <p>Handle customer requests, comments, and state changes.</p>
+          <button className="inline-btn" onClick={() => setPage('requests')}>
+            Open Requests
+          </button>
+        </article>
+        <article className="quick-card">
+          <h3>RFQ Pipeline</h3>
+          <p>Track active RFQs and open full detail in one click.</p>
+          <button className="inline-btn" onClick={() => setPage('rfqs')}>
+            Open RFQs
+          </button>
+        </article>
+        <article className="quick-card">
+          <h3>Order Ops</h3>
+          <p>Review allocations, shipments, docs, and assigned services.</p>
+          <button className="inline-btn" onClick={() => setPage('orders')}>
+            Open Orders
+          </button>
+        </article>
       </section>
 
-      <section className="grid two">
-        <div className="card">
-          <div className="section-head">
-            <h3>Services marketplace</h3>
-            <span className="muted">Attach to RFQ/Order</span>
-          </div>
-          <div className="list small">
-            {services.map((s) => (
-              <div key={s.id} className="row-line">
-                <div className="req-title">{s.name}</div>
-                <div className="muted tiny">{s.attachTo} · {s.chargeable ? 'Chargeable' : 'Included'} · {s.status}</div>
-              </div>
-            ))}
-            {services.length === 0 && <p className="muted">No services listed.</p>}
-          </div>
+      <section className="page-section">
+        <div className="section-head">
+          <h3 className="section-title">Recent Requests</h3>
+          <button className="text-btn" onClick={() => setPage('requests')}>
+            View all
+          </button>
         </div>
-
-        <div className="card">
-          <div className="section-head">
-            <h3>Inventory & production</h3>
-            <span className="muted">Recent events</span>
-          </div>
-          <div className="list small">
-            {inventoryEvents.slice(0, 6).map((e, idx) => (
-              <div key={idx} className="row-line">
-                <span className="pill tiny">{e.type}</span>
-                <div className="req-title">{e.order_number}</div>
-                <span className="muted tiny">{e.detail}</span>
-              </div>
-            ))}
-            {inventoryEvents.length === 0 && <p className="muted">No events yet.</p>}
-          </div>
+        <div className="list-table">
+          {requests.slice(0, 5).map((request) => (
+            <button
+              key={request.id}
+              className="list-row clickable"
+              onClick={() => openRequestDetail(request.id)}
+            >
+              <span className="badge">{request.state}</span>
+              <span className="row-main">{request.title}</span>
+              <span className="row-meta">{formatDate(request.created_at)}</span>
+            </button>
+          ))}
+          {requests.length === 0 && <p className="empty-state">No requests available.</p>}
         </div>
       </section>
     </>
   );
 
-  const renderRequests = () => (
-    <section className="grid two">
-      <div className="card">
+  const renderRequestsPage = () => (
+    <section className="page-section">
+      <div className="section-head">
+        <h3 className="section-title">All Requests</h3>
+        <span className="muted">{requests.length} total</span>
+      </div>
+      <div className="list-table">
+        {requests.map((request) => (
+          <button
+            key={request.id}
+            className="list-row clickable"
+            onClick={() => openRequestDetail(request.id)}
+          >
+            <span className="badge">{request.state}</span>
+            <span className="row-main">{request.title}</span>
+            <span className="row-meta">
+              {request.priority || 'normal'} | {formatDate(request.created_at)}
+            </span>
+          </button>
+        ))}
+        {requests.length === 0 && <p className="empty-state">No requests found.</p>}
+      </div>
+    </section>
+  );
+
+  const renderRequestDetailPage = () => {
+    if (!selectedRequest) {
+      return (
+        <section className="page-section">
+          <p className="empty-state">Select a request from Requests page first.</p>
+          <button className="inline-btn" onClick={() => setPage('requests')}>
+            Back to Requests
+          </button>
+        </section>
+      );
+    }
+
+    return (
+      <section className="detail-wrap">
         <div className="section-head">
-          <h2>Requests</h2>
-          <span className="muted">Live</span>
+          <div>
+            <button className="text-btn" onClick={() => setPage('requests')}>
+              Back to Requests
+            </button>
+            <h3 className="section-title">{selectedRequest.title}</h3>
+            <p className="muted">
+              State: {selectedRequest.state} | Created: {formatDateTime(selectedRequest.created_at)}
+            </p>
+          </div>
+          <div className="action-row">
+            <button className="inline-btn" onClick={() => runTransition('submit_request')}>
+              Submit
+            </button>
+            {auth?.actor === 'internal' && (
+              <>
+                <button className="inline-btn light" onClick={() => runTransition('start_processing')}>
+                  Start
+                </button>
+                <button className="inline-btn light" onClick={() => runTransition('complete_request')}>
+                  Complete
+                </button>
+              </>
+            )}
+          </div>
         </div>
-        <div className="list">
-          {requests.map((r) => (
-            <button
-              key={r.id}
-              className={`row-btn ${selectedRequestId === r.id ? 'active' : ''}`}
-              onClick={() => selectRequest(r.id)}
-            >
-              <div className="pill small">{r.state}</div>
-              <div className="row-body">
-                <div className="req-title">{r.title}</div>
-                <div className="req-meta">
-                  <span>{r.priority || 'normal'}</span>
-                  <span>{new Date(r.created_at).toLocaleDateString()}</span>
-                </div>
+
+        {(errors.thread || errors.action) && <p className="banner-error">{errors.thread || errors.action}</p>}
+
+        <article className="detail-card">
+          <h4>Conversation</h4>
+          <div className="thread-panel">
+            {thread.map((message) => (
+              <div
+                key={message.id}
+                className={`thread-item ${message.message_type === 'system_state_change' ? 'system' : ''}`}
+              >
+                <p>{message.body}</p>
+                <span>{formatDateTime(message.created_at)}</span>
               </div>
-            </button>
-          ))}
-          {requests.length === 0 && <p className="muted">No requests yet.</p>}
-        </div>
-      </div>
+            ))}
+            {thread.length === 0 && <p className="empty-state">No thread messages yet.</p>}
+          </div>
 
-      <div className="card">
-        <div className="section-head">
-          <h2>Thread</h2>
-          <div className="actions">
-            <button onClick={() => doTransition('submit_request')}>Submit</button>
-            {auth.actor === 'internal' && (
-              <>
-                <button className="ghost" onClick={() => doTransition('start_processing')}>Start</button>
-                <button className="ghost" onClick={() => doTransition('complete_request')}>Complete</button>
-              </>
-            )}
+          <div className="composer">
+            <input
+              placeholder="Write a comment for this request"
+              value={comment}
+              onChange={(event) => setComment(event.target.value)}
+            />
+            <button className="inline-btn" onClick={sendComment}>
+              Send
+            </button>
           </div>
-        </div>
-        {selectedRequest && (
-          <div className="req-detail">
-            <span className="pill tiny">{selectedRequest.state}</span>
-            <span className="muted tiny">Category: {selectedRequest.category || '-'}</span>
-            <span className="muted tiny">Created: {new Date(selectedRequest.created_at).toLocaleString()}</span>
-          </div>
-        )}
-        <div className="thread">
-          {thread.map((m) => (
-            <div key={m.id} className={`bubble ${m.message_type === 'system_state_change' ? 'system' : 'customer'}`}>
-              {m.body}
-              <div className="muted tiny">{new Date(m.created_at).toLocaleString()}</div>
-            </div>
-          ))}
-          {thread.length === 0 && <p className="muted">Select a request to view thread.</p>}
-        </div>
-        <div className="composer">
-          <input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Add a comment..." />
-          <button onClick={sendComment}>Send</button>
-        </div>
+        </article>
+      </section>
+    );
+  };
+
+  const renderRfqsPage = () => (
+    <section className="page-section">
+      <div className="section-head">
+        <h3 className="section-title">All RFQs</h3>
+        <span className="muted">{rfqs.length} total</span>
+      </div>
+      <div className="list-table">
+        {rfqs.map((rfq) => (
+          <button key={rfq.id} className="list-row clickable" onClick={() => openRfqDetail(rfq.id)}>
+            <span className="badge">{rfq.state}</span>
+            <span className="row-main">{rfq.rfq_number}</span>
+            <span className="row-meta">{formatDate(rfq.created_at)}</span>
+          </button>
+        ))}
+        {rfqs.length === 0 && <p className="empty-state">No RFQs found.</p>}
       </div>
     </section>
   );
 
-  const renderRfqs = () => (
-    <section className="grid two">
-      <div className="card">
-        <div className="section-head">
-          <h3>RFQs</h3>
-          <span className="muted">Negotiation</span>
-        </div>
-        <div className="list small">
-          {rfqs.map((r) => (
-            <button key={r.id} className={`row-line btn-line ${selectedRfqId === r.id ? 'active' : ''}`} onClick={() => selectRfq(r.id)}>
-              <span className="pill tiny">{r.state}</span>
-              <div className="req-title">{r.rfq_number}</div>
-              <span className="muted tiny">{new Date(r.created_at).toLocaleDateString()}</span>
-            </button>
-          ))}
-        </div>
-      </div>
+  const renderRfqDetailPage = () => {
+    if (!rfqDetail) {
+      return (
+        <section className="page-section">
+          <p className="empty-state">Select an RFQ from RFQs page first.</p>
+          <button className="inline-btn" onClick={() => setPage('rfqs')}>
+            Back to RFQs
+          </button>
+        </section>
+      );
+    }
 
-      <div className="card">
+    return (
+      <section className="detail-wrap">
         <div className="section-head">
-          <h3>RFQ detail</h3>
-          <span className="muted">Items & target</span>
-        </div>
-        {rfqDetail ? (
-          <div className="order-detail">
-            <p className="muted tiny">Target ship: {rfqDetail.rfq.target_ship_date ? new Date(rfqDetail.rfq.target_ship_date).toLocaleDateString() : '-'}</p>
-            <p className="muted tiny">SKU count: {rfqDetail.rfq.sku_count || '-'}</p>
-            <div className="muted tiny">Items:</div>
-            <ul className="mini-list">
-              {rfqDetail.items.map((i, idx) => (
-                <li key={idx}>{i.sku} - {i.qty}</li>
-              ))}
-            </ul>
+          <div>
+            <button className="text-btn" onClick={() => setPage('rfqs')}>
+              Back to RFQs
+            </button>
+            <h3 className="section-title">{rfqDetail.rfq.rfq_number}</h3>
+            <p className="muted">
+              State: {rfqDetail.rfq.state} | Target ship date:{' '}
+              {formatDate(rfqDetail.rfq.target_ship_date || null)}
+            </p>
           </div>
-        ) : (
-          <p className="muted">Select an RFQ to view detail.</p>
-        )}
+        </div>
+
+        {errors.rfq && <p className="banner-error">{errors.rfq}</p>}
+
+        <article className="detail-card">
+          <h4>RFQ Items</h4>
+          <ul className="simple-list">
+            {rfqDetail.items.map((item, index) => (
+              <li key={`${item.sku}-${index}`}>
+                <span>{item.sku}</span>
+                <span>Qty: {item.qty}</span>
+              </li>
+            ))}
+            {rfqDetail.items.length === 0 && <li>No line items available.</li>}
+          </ul>
+          <p className="muted">SKU count (summary): {rfqDetail.rfq.sku_count || '-'}</p>
+        </article>
+      </section>
+    );
+  };
+
+  const renderOrdersPage = () => (
+    <section className="page-section">
+      <div className="section-head">
+        <h3 className="section-title">All Orders</h3>
+        <span className="muted">{orders.length} total</span>
+      </div>
+      <div className="list-table">
+        {orders.map((order) => (
+          <button
+            key={order.id}
+            className="list-row clickable"
+            onClick={() => openOrderDetail(order.id)}
+          >
+            <span className="badge">{order.state}</span>
+            <span className="row-main">{order.order_number}</span>
+            <span className="row-meta">{formatDate(order.created_at)}</span>
+          </button>
+        ))}
+        {orders.length === 0 && <p className="empty-state">No orders found.</p>}
       </div>
     </section>
   );
 
-  const renderOrders = () => (
-    <section className="grid two">
-      <div className="card">
+  const renderOrderDetailPage = () => {
+    if (!orderDetail) {
+      return (
+        <section className="page-section">
+          <p className="empty-state">Select an order from Orders page first.</p>
+          <button className="inline-btn" onClick={() => setPage('orders')}>
+            Back to Orders
+          </button>
+        </section>
+      );
+    }
+
+    const docsForState = meta?.orderStates.find((state) => state.state === orderDetail.order.state)?.docs || [];
+    const orderEvents = inventoryEvents.filter(
+      (event) => event.order_number === orderDetail.order.order_number,
+    );
+
+    return (
+      <section className="detail-wrap">
         <div className="section-head">
-          <h3>Orders</h3>
-          <span className="muted">Lifecycle</span>
-        </div>
-        <div className="list small">
-          {orders.map((o) => (
-            <button key={o.id} className={`row-line btn-line ${selectedOrderId === o.id ? 'active' : ''}`} onClick={() => selectOrder(o.id)}>
-              <span className="pill tiny">{o.state}</span>
-              <div className="req-title">{o.order_number}</div>
-              <span className="muted tiny">{new Date(o.created_at).toLocaleDateString()}</span>
+          <div>
+            <button className="text-btn" onClick={() => setPage('orders')}>
+              Back to Orders
             </button>
-          ))}
+            <h3 className="section-title">{orderDetail.order.order_number}</h3>
+            <p className="muted">
+              State: {orderDetail.order.state} | Tracking: {orderDetail.order.tracking_number || '-'} |
+              ETA: {formatDateTime(orderDetail.order.eta || null)}
+            </p>
+          </div>
         </div>
-      </div>
 
-      <div className="card">
-        <div className="section-head">
-          <h3>Order detail</h3>
-          <span className="muted">Docs · Services · Shipments</span>
-        </div>
-        {orderDetail ? (
-          <div className="order-detail">
-            <p className="muted tiny">Batch: {orderDetail.order.batch_number || '-'}</p>
-            <p className="muted tiny">Tracking: {orderDetail.order.tracking_number || '-'}</p>
-            <p className="muted tiny">ETA: {orderDetail.order.eta ? new Date(orderDetail.order.eta).toLocaleString() : '-'}</p>
-            {meta && (
-              <>
-                <div className="muted tiny">Required docs for state “{orderDetail.order.state}”:</div>
-                <ul className="mini-list">
-                  {(meta.orderStates.find((s) => s.state === orderDetail.order.state)?.docs || ['Not specified']).map((d) => (
-                    <li key={d}>{d}</li>
-                  ))}
-                </ul>
-              </>
-            )}
+        {(errors.order || errors.action) && <p className="banner-error">{errors.order || errors.action}</p>}
 
-            <div className="muted tiny">Documents:</div>
-            <ul className="mini-list">
-              {orderDocs.map((d) => (
-                <li key={`${d.name}-${d.version ?? 1}`}>{d.name} (for {d.requiredFor}) v{d.version ?? 1}</li>
-              ))}
-              {orderDocs.length === 0 && <li className="muted">No documents yet.</li>}
-            </ul>
-            <div className="composer">
-              <input
-                value={newDocName}
-                onChange={(e) => setNewDocName(e.target.value)}
-                placeholder="Upload placeholder name"
-                disabled={docsLoading}
-              />
-              <button onClick={handleUploadDoc} disabled={docsLoading}>Upload</button>
-            </div>
-            {docError && <p className="error">{docError}</p>}
-
-            <div className="muted tiny" style={{ marginTop: 10 }}>Services attached:</div>
-            <ul className="mini-list">
-              {serviceAssignments.map((s) => (
-                <li key={s.serviceId}>
-                  {services.find((x) => x.id === s.serviceId)?.name || s.serviceId} — {s.status}
-                  {auth.actor === 'internal' && s.status !== 'approved' && (
-                    <button className="link-btn" onClick={() => handleApproveService(s.serviceId)}>Approve</button>
-                  )}
+        <div className="detail-grid">
+          <article className="detail-card">
+            <h4>Required Documents</h4>
+            <ul className="simple-list">
+              {docsForState.map((doc) => (
+                <li key={doc}>
+                  <span>{doc}</span>
                 </li>
               ))}
-              {serviceAssignments.length === 0 && <li className="muted">None yet.</li>}
+              {docsForState.length === 0 && <li>No required documents defined.</li>}
             </ul>
+
+            <h4>Uploaded Documents</h4>
+            <ul className="simple-list">
+              {orderDocs.map((doc) => (
+                <li key={`${doc.name}-${doc.version || 1}`}>
+                  <span>{doc.name}</span>
+                  <span>
+                    {doc.requiredFor} v{doc.version || 1}
+                  </span>
+                </li>
+              ))}
+              {orderDocs.length === 0 && <li>No uploaded documents yet.</li>}
+            </ul>
+
             <div className="composer">
-              <select value={selectedServiceId} onChange={(e) => setSelectedServiceId(e.target.value)}>
-                <option value="">Attach a service</option>
-                {services.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name} · {s.attachTo}</option>
+              <input
+                placeholder="Document name"
+                value={newDocName}
+                onChange={(event) => setNewDocName(event.target.value)}
+                disabled={docsLoading}
+              />
+              <button className="inline-btn" onClick={uploadDocument} disabled={docsLoading}>
+                Upload
+              </button>
+            </div>
+            {docError && <p className="banner-error">{docError}</p>}
+          </article>
+
+          <article className="detail-card">
+            <h4>Service Assignments</h4>
+            <ul className="simple-list">
+              {serviceAssignments.map((assignment) => (
+                <li key={assignment.serviceId}>
+                  <span>
+                    {services.find((service) => service.id === assignment.serviceId)?.name ||
+                      assignment.serviceId}
+                  </span>
+                  <span>
+                    {assignment.status}
+                    {auth?.actor === 'internal' && assignment.status !== 'approved' && (
+                      <button
+                        className="text-btn inline-text"
+                        onClick={() => markServiceApproved(assignment.serviceId)}
+                      >
+                        Approve
+                      </button>
+                    )}
+                  </span>
+                </li>
+              ))}
+              {serviceAssignments.length === 0 && <li>No services assigned yet.</li>}
+            </ul>
+
+            <div className="composer">
+              <select
+                value={selectedServiceId}
+                onChange={(event) => setSelectedServiceId(event.target.value)}
+              >
+                <option value="">Select service</option>
+                {services.map((service) => (
+                  <option key={service.id} value={service.id}>
+                    {service.name} ({service.attachTo})
+                  </option>
                 ))}
               </select>
-              <button onClick={handleAttachService}>Attach</button>
+              <button className="inline-btn" onClick={attachService}>
+                Attach
+              </button>
             </div>
 
-            <div className="muted tiny" style={{ marginTop: 10 }}>Allocations:</div>
-            <ul className="mini-list">
-              {orderDetail.allocations.map((a) => (
-                <li key={a.lot}>{a.lot} - {a.status} - {a.qty}</li>
+            <h4>Allocations</h4>
+            <ul className="simple-list">
+              {orderDetail.allocations.map((allocation) => (
+                <li key={allocation.lot}>
+                  <span>{allocation.lot}</span>
+                  <span>
+                    {allocation.status} | Qty {allocation.qty}
+                  </span>
+                </li>
               ))}
+              {orderDetail.allocations.length === 0 && <li>No allocations.</li>}
             </ul>
-            <div className="muted tiny">Shipments:</div>
-            <ul className="mini-list">
-              {orderDetail.shipments.map((s, idx) => (
-                <li key={idx}>{s.carrier} - {s.tracking} - {s.eta ? new Date(s.eta).toLocaleString() : '-'}</li>
-              ))}
-            </ul>
-            <div className="muted tiny">Inventory / production events:</div>
-            <ul className="mini-list">
-              {orderEvents.map((e, idx) => (
-                <li key={idx}>{e.type} — {e.detail}</li>
-              ))}
-              {orderEvents.length === 0 && <li className="muted">No events yet.</li>}
-            </ul>
-          </div>
-        ) : (
-          <p className="muted">Select an order to view detail.</p>
-        )}
-      </div>
-    </section>
-  );
 
-  const renderNotifications = () => (
-    <section className="card">
+            <h4>Shipments</h4>
+            <ul className="simple-list">
+              {orderDetail.shipments.map((shipment, index) => (
+                <li key={`${shipment.tracking}-${index}`}>
+                  <span>{shipment.carrier}</span>
+                  <span>
+                    {shipment.tracking} | ETA {formatDateTime(shipment.eta)}
+                  </span>
+                </li>
+              ))}
+              {orderDetail.shipments.length === 0 && <li>No shipment records.</li>}
+            </ul>
+
+            <h4>Inventory Events</h4>
+            <ul className="simple-list">
+              {orderEvents.map((event, index) => (
+                <li key={`${event.ts}-${index}`}>
+                  <span>{event.type}</span>
+                  <span>{event.detail}</span>
+                </li>
+              ))}
+              {orderEvents.length === 0 && <li>No related events.</li>}
+            </ul>
+          </article>
+        </div>
+      </section>
+    );
+  };
+
+  const renderNotificationsPage = () => (
+    <section className="page-section">
       <div className="section-head">
-        <h3>Notifications</h3>
-        <span className="muted">Outbox</span>
+        <h3 className="section-title">Notifications</h3>
+        <span className="muted">{notifications.length} events</span>
       </div>
-      <div className="list small">
-        {notifications.map((n) => (
-          <div key={n.id} className="row-line">
-            <span className="pill tiny">{n.event_type}</span>
-            <div className="req-title">
-              {n.payload?.rfq_number || n.payload?.order_number || n.payload?.request_title || 'Event'}
-            </div>
-            <span className="muted tiny">{new Date(n.created_at).toLocaleString()}</span>
-          </div>
+      <div className="list-table">
+        {notifications.map((notification) => (
+          <article key={notification.id} className="list-row">
+            <span className="badge">{notification.event_type}</span>
+            <span className="row-main">
+              {notification.payload?.rfq_number ||
+                notification.payload?.order_number ||
+                notification.payload?.request_title ||
+                'Workflow event'}
+            </span>
+            <span className="row-meta">{formatDateTime(notification.created_at)}</span>
+          </article>
         ))}
-        {notifications.length === 0 && <p className="muted">No notifications.</p>}
+        {notifications.length === 0 && <p className="empty-state">No notifications available.</p>}
       </div>
     </section>
   );
+
+  const renderCurrentPage = () => {
+    switch (page) {
+      case 'dashboard':
+        return renderDashboard();
+      case 'requests':
+        return renderRequestsPage();
+      case 'request-detail':
+        return renderRequestDetailPage();
+      case 'rfqs':
+        return renderRfqsPage();
+      case 'rfq-detail':
+        return renderRfqDetailPage();
+      case 'orders':
+        return renderOrdersPage();
+      case 'order-detail':
+        return renderOrderDetailPage();
+      case 'notifications':
+        return renderNotificationsPage();
+      default:
+        return renderDashboard();
+    }
+  };
+
+  if (!auth) {
+    return (
+      <div className="login-shell">
+        <section className="login-brand">
+          <img src={logo} alt="Babylon" />
+          <p className="brand-tag">Babylon CRM</p>
+          <h1>Simple workspace for requests, RFQs, and order operations.</h1>
+          <p>Choose one demo profile and start working with a clean page-by-page CRM flow.</p>
+        </section>
+
+        <section className="login-panel">
+          <h2>Sign in</h2>
+          <label className="form-label" htmlFor="email">
+            Email
+          </label>
+          <input
+            id="email"
+            className="text-input"
+            value={loginForm.email}
+            onChange={(event) => setLoginForm((current) => ({ ...current, email: event.target.value }))}
+            placeholder="alice@babylon.internal or bob@acme.com"
+          />
+
+          <label className="form-label" htmlFor="password">
+            Password
+          </label>
+          <input
+            id="password"
+            className="text-input"
+            type="password"
+            value={loginForm.password}
+            onChange={(event) =>
+              setLoginForm((current) => ({ ...current, password: event.target.value }))
+            }
+            placeholder="Enter password"
+          />
+
+          <div className="login-presets">
+            <button
+              className="preset-btn"
+              onClick={() =>
+                setLoginForm({
+                  email: USER_PRESETS.internal.email,
+                  password: USER_PRESETS.internal.password,
+                })
+              }
+            >
+              Use Internal User
+            </button>
+            <button
+              className="preset-btn"
+              onClick={() =>
+                setLoginForm({
+                  email: USER_PRESETS.customer.email,
+                  password: USER_PRESETS.customer.password,
+                })
+              }
+            >
+              Use Customer User
+            </button>
+          </div>
+
+          {loginError && <p className="login-error">{loginError}</p>}
+
+          <button className="primary-btn" onClick={handleLogin}>
+            Open CRM
+          </button>
+        </section>
+      </div>
+    );
+  }
 
   return (
-    <div className="shell">
+    <div className="crm-shell">
       <aside className="sidebar">
-        <div className="logo-block">
+        <div className="brand-block">
           <img src={logo} alt="Babylon" />
-          <p className="eyebrow">Babylon Portal</p>
+          <p>Babylon CRM</p>
         </div>
-        <div className="actor-switch">
-          <p>View</p>
-          <div className="switch">
-            <button className={auth.actor === 'customer' ? 'active' : ''} onClick={() => setAuth(buildAuth('customer'))}>Customer</button>
-            <button className={auth.actor === 'internal' ? 'active' : ''} onClick={() => setAuth(buildAuth('internal'))}>Babylon</button>
+
+        <nav className="nav-group">
+          <button
+            className={`nav-btn ${activeNav === 'dashboard' ? 'active' : ''}`}
+            onClick={() => setPage('dashboard')}
+          >
+            Dashboard
+          </button>
+          <button
+            className={`nav-btn ${activeNav === 'requests' ? 'active' : ''}`}
+            onClick={() => setPage('requests')}
+          >
+            Requests
+          </button>
+          <button
+            className={`nav-btn ${activeNav === 'rfqs' ? 'active' : ''}`}
+            onClick={() => setPage('rfqs')}
+          >
+            RFQs
+          </button>
+          <button
+            className={`nav-btn ${activeNav === 'orders' ? 'active' : ''}`}
+            onClick={() => setPage('orders')}
+          >
+            Orders
+          </button>
+          <button
+            className={`nav-btn ${activeNav === 'notifications' ? 'active' : ''}`}
+            onClick={() => setPage('notifications')}
+          >
+            Notifications
+          </button>
+        </nav>
+
+        <div className="sidebar-footer">
+          <p className="chip">Tenant: {auth.customerId}</p>
+          <p className="chip">Membership: {auth.membershipId}</p>
+
+          <div className="actor-toggle">
+            <button
+              className={`actor-btn ${auth.actor === 'customer' ? 'active' : ''}`}
+              onClick={() => switchActor('customer')}
+            >
+              Customer View
+            </button>
+            <button
+              className={`actor-btn ${auth.actor === 'internal' ? 'active' : ''}`}
+              onClick={() => switchActor('internal')}
+            >
+              Internal View
+            </button>
           </div>
-          <small className="muted">Controls which actions are enabled</small>
-          <button className="link danger" onClick={logout}>Logout</button>
-        </div>
-        <div className="mini-card">
-          <p className="muted small">Customer ID</p>
-          <p className="code">{auth.customerId}</p>
-          <p className="muted small">Membership ID</p>
-          <p className="code">{auth.membershipId}</p>
+
+          <button className="logout-btn" onClick={logout}>
+            Logout
+          </button>
         </div>
       </aside>
 
-      <main className="content">
+      <main className="content-area">
         <header className="topbar">
           <div>
-            <h1>CRM Ops Console</h1>
-            <p className="muted">Dual-side workflow, messaging, documents, and notifications.</p>
+            <h2 className="page-title">{getPageLabel(page)}</h2>
+            <p className="page-subtitle">
+              Signed in as {auth.name} ({auth.email})
+            </p>
           </div>
-          <div className="badges">
-            <span className="pill bold">Tenant isolation</span>
-            <span className="pill">Workflow driven</span>
+          <div className="topbar-right">
+            {isLoading && <span className="muted">Refreshing data...</span>}
+            <button className="inline-btn light" onClick={() => void loadWorkspace(auth)}>
+              Refresh
+            </button>
           </div>
         </header>
 
-        {errors.load && <div className="error">{errors.load}</div>}
+        {errors.load && <p className="banner-error">{errors.load}</p>}
 
-        <TabNav active={tab} onChange={setTab} />
-
-        {tab === 'dashboard' && renderDashboard()}
-        {tab === 'requests' && renderRequests()}
-        {tab === 'rfqs' && renderRfqs()}
-        {tab === 'orders' && renderOrders()}
-        {tab === 'notifications' && renderNotifications()}
+        {renderCurrentPage()}
       </main>
     </div>
   );
