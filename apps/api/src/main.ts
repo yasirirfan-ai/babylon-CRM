@@ -12,6 +12,8 @@ import { ordersRouter } from './modules/orders/index.js';
 import { notificationsRouter } from './modules/notifications/index.js';
 import { approvalsRouter } from './modules/approvals/index.js';
 import { metaRouter } from './modules/meta/index.js';
+import { logisticsRouter } from './modules/logistics/index.js';
+import { documentsRouter } from './modules/documents/index.js';
 import { demoRouter } from './modules/demo/index.js';
 import { loadWorkflowConfig } from './modules/workflow/config/workflowConfigLoader.js';
 import { registry } from './modules/workflow/workflowRegistry.js';
@@ -37,6 +39,9 @@ app.get('/index.html', (_req, res) => {
     res.sendFile(path.join(webDist, 'index.html'));
 });
 
+// Serve uploads statically
+app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
+
 // Namespace all API routes under /api so Vercel rewrite + client base path line up.
 const api = express.Router();
 
@@ -59,6 +64,8 @@ api.use('/orders', ordersRouter);
 api.use('/notifications', notificationsRouter);
 api.use('/approvals', approvalsRouter);
 api.use('/meta', metaRouter);
+api.use('/logistics', logisticsRouter);
+api.use('/documents', documentsRouter);
 api.use('/demo', demoRouter);
 
 app.use('/api', api);

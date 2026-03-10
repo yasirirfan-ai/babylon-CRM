@@ -164,6 +164,7 @@ export const requests = pgTable('requests', {
     metadata: jsonb('metadata'),
     created_by_membership_id: uuid('created_by_membership_id').notNull().references(() => memberships.id),
     assigned_to_membership_id: uuid('assigned_to_membership_id').references(() => memberships.id),
+    deadline: timestamp('deadline'),
     created_at: timestamp('created_at').defaultNow().notNull(),
     updated_at: timestamp('updated_at').defaultNow().notNull(),
 }, (table) => ({
@@ -189,5 +190,7 @@ export const orders = pgTable('orders', {
     tracking_number: text('tracking_number'),
     batch_number: text('batch_number'),
     eta: timestamp('eta'),
+    expedite_fee: text('expedite_fee'),
+    carrier_status: text('carrier_status'),
     created_at: timestamp('created_at').defaultNow().notNull(),
 });

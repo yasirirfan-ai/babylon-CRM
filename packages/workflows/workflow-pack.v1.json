@@ -59,6 +59,20 @@
                     ]
                 },
                 {
+                    "key": "reject_request",
+                    "name": "Reject Request",
+                    "from_state": "submitted",
+                    "to_state": "rejected",
+                    "trigger": {
+                        "actor_type": [
+                            "internal"
+                        ],
+                        "permissions": [
+                            "requests:manage"
+                        ]
+                    }
+                },
+                {
                     "key": "complete_request",
                     "name": "Complete Request",
                     "from_state": "in_progress",

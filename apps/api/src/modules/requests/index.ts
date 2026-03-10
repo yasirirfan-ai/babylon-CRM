@@ -53,6 +53,7 @@ requestsRouter.post('/', async (req, res) => {
                 category: payload.category,
                 subcategory: payload.subcategory,
                 priority: payload.priority,
+                deadline: payload.deadline ? new Date(payload.deadline) : null,
                 metadata: payload.metadata,
                 created_by_membership_id: membershipId,
             }).returning();
@@ -182,11 +183,15 @@ requestsRouter.post('/:id/transition', async (req, res) => {
             const [thread] = await tx.select().from(threads)
                 .where(and(eq(threads.context_id, request.id), eq(threads.context_type, 'request'), eq(threads.customer_id, customerId)));
             if (thread) {
+                let body = `[System] Transitioned from ${fromState} to ${toState}`;
+                if (transitionKey === 'reject_request' && payload?.reason) {
+                    body += `\nReason: ${payload.reason}`;
+                }
                 await tx.insert(messages).values({
                     customer_id: customerId,
                     thread_id: thread.id,
                     message_type: 'system_state_change',
-                    body: `[System] Transitioned from ${fromState} to ${toState}`,
+                    body,
                 });
             }
         });
@@ -194,5 +199,39 @@ requestsRouter.post('/:id/transition', async (req, res) => {
         res.json({ success: true, fromState, toState });
     } catch (err: any) {
         res.status(400).json({ error: err.message });
+    }
+});
+
+// DELETE /requests/:id
+requestsRouter.delete('/:id', async (req, res) => {
+    try {
+        const customerId = req.tenant!.customerId;
+        const reqId = req.params.id;
+
+        // Verify request exists to enforce tenant
+        const reqQuery = db.select().from(requests);
+        const [request] = await withTenant(reqQuery, requests, customerId, eq(requests.id, reqId));
+        if (!request) return res.status(404).json({ error: 'Not found' });
+
+        await db.transaction(async (tx) => {
+            // Find thread
+            const [thread] = await tx.select().from(threads)
+                .where(and(eq(threads.context_id, reqId), eq(threads.context_type, 'request'), eq(threads.customer_id, customerId)));
+
+            if (thread) {
+                // Delete messages
+                await tx.delete(messages).where(eq(messages.thread_id, thread.id));
+                // Delete thread
+                await tx.delete(threads).where(eq(threads.id, thread.id));
+            }
+
+            // Delete request
+            await tx.delete(requests)
+                .where(withTenantUpdate(requests, customerId, eq(requests.id, reqId)));
+        });
+
+        res.json({ success: true });
+    } catch (error: any) {
+        res.status(500).json({ error: 'Failed to delete request' });
     }
 });

@@ -17,12 +17,18 @@ import {
   assignService,
   approveService,
   fetchInventoryEvents,
+  createRequest,
+  deleteRequest,
+  trackShipment,
+  fetchRequestDocuments,
+  uploadRequestDocument,
   type RequestItem,
   type ThreadMessage,
   type RfqItem,
   type OrderItem,
   type NotificationItem,
   type OrderDetail,
+  type DocumentItem,
 } from './api';
 import { useOrderDocuments } from './hooks/useDocuments';
 
@@ -147,10 +153,13 @@ function App() {
   >([]);
 
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
+  const [thread, setThread] = useState<ThreadMessage[]>([]);
+  const [requestDocs, setRequestDocs] = useState<DocumentItem[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+
   const [selectedRfqId, setSelectedRfqId] = useState<string | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
 
-  const [thread, setThread] = useState<ThreadMessage[]>([]);
   const [rfqDetail, setRfqDetail] = useState<{
     rfq: RfqItem;
     items: { sku: string; qty: number }[];
@@ -165,6 +174,17 @@ function App() {
   const [selectedServiceId, setSelectedServiceId] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<AppErrors>({});
+  const [showNewRequestForm, setShowNewRequestForm] = useState(false);
+  const [newRequestData, setNewRequestData] = useState({
+    title: '',
+    description: '',
+    category: 'New Product Request',
+    ingredients: '',
+    deadline: '',
+  });
+  const [newRequestFile, setNewRequestFile] = useState<File | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [isRejecting, setIsRejecting] = useState(false);
 
   const {
     docs: orderDocs,
@@ -260,6 +280,24 @@ function App() {
   }, [auth, selectedRequestId]);
 
   useEffect(() => {
+    if (!auth || !selectedRequestId) {
+      setRequestDocs([]);
+      return;
+    }
+
+    const loadDocs = async () => {
+      try {
+        const docs = await fetchRequestDocuments(selectedRequestId, auth);
+        setRequestDocs(docs);
+      } catch (error: unknown) {
+        console.error('Failed to load request documents', error);
+      }
+    };
+
+    void loadDocs();
+  }, [auth, selectedRequestId]);
+
+  useEffect(() => {
     if (!auth || !selectedRfqId) {
       setRfqDetail(null);
       return;
@@ -348,10 +386,6 @@ function App() {
     setErrors({});
   };
 
-  const switchActor = (actor: Actor) => {
-    setAuth(buildAuth(actor));
-    setPage('dashboard');
-  };
 
   const openRequestDetail = (id: string) => {
     setSelectedRequestId(id);
@@ -386,11 +420,11 @@ function App() {
     }
   };
 
-  const runTransition = async (transitionKey: string) => {
+  const runTransition = async (transitionKey: string, payload?: unknown) => {
     if (!auth || !selectedRequestId) return;
 
     try {
-      const result = await transitionRequest(selectedRequestId, transitionKey, auth);
+      const result = await transitionRequest(selectedRequestId, transitionKey, payload, auth);
       const latestRequests = await fetchRequests(auth);
       const threadData = await fetchRequestThread(selectedRequestId, auth);
       setRequests(latestRequests);
@@ -434,6 +468,71 @@ function App() {
     }
   };
 
+  const handleCreateRequest = async () => {
+    if (!auth || !newRequestData.title.trim()) return;
+    setIsLoading(true);
+    try {
+      const metadata = newRequestData.ingredients ? { ingredients: newRequestData.ingredients } : undefined;
+      const createdReq = await createRequest({
+        title: newRequestData.title,
+        description: newRequestData.description,
+        category: newRequestData.category,
+        deadline: newRequestData.deadline || undefined,
+        metadata,
+      }, auth);
+
+      if (newRequestFile && createdReq.id) {
+        await uploadRequestDocument(createdReq.id, newRequestFile, auth);
+      }
+
+      setShowNewRequestForm(false);
+      setNewRequestData({ title: '', description: '', category: 'New Product Request', ingredients: '', deadline: '' });
+      setNewRequestFile(null);
+      await loadWorkspace(auth);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to create request';
+      setErrors((current) => ({ ...current, action: message }));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDeleteRequest = async () => {
+    if (!auth || !selectedRequestId) return;
+    if (!window.confirm('Are you sure you want to delete this request? This action cannot be undone.')) return;
+
+    setIsLoading(true);
+    try {
+      await deleteRequest(selectedRequestId, auth);
+      setPage('requests');
+      setSelectedRequestId('');
+      await loadWorkspace(auth);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to delete request';
+      setErrors((current) => ({ ...current, action: message }));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !auth || !selectedRequestId) return;
+
+    setIsUploading(true);
+    try {
+      await uploadRequestDocument(selectedRequestId, file, auth);
+      const docs = await fetchRequestDocuments(selectedRequestId, auth);
+      setRequestDocs(docs);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to upload document';
+      setErrors((current) => ({ ...current, action: message }));
+    } finally {
+      setIsUploading(false);
+      e.target.value = '';
+    }
+  };
+
   const uploadDocument = async () => {
     if (!newDocName.trim()) return;
     await uploadOrderDoc(newDocName.trim(), orderDetail?.order.state);
@@ -463,26 +562,36 @@ function App() {
 
       <section className="quick-grid">
         <article className="quick-card">
-          <h3>Requests Queue</h3>
-          <p>Handle customer requests, comments, and state changes.</p>
+          <h3>{auth?.actor === 'internal' ? 'Requests Queue' : 'My Requests'}</h3>
+          <p>
+            {auth?.actor === 'internal'
+              ? 'Handle customer requests, comments, and state changes.'
+              : 'Track your requests and communicate with our team.'}
+          </p>
           <button className="inline-btn" onClick={() => setPage('requests')}>
-            Open Requests
+            {auth?.actor === 'internal' ? 'Open Requests' : 'View My Requests'}
           </button>
         </article>
         <article className="quick-card">
-          <h3>RFQ Pipeline</h3>
-          <p>Track active RFQs and open full detail in one click.</p>
+          <h3>{auth?.actor === 'internal' ? 'RFQ Pipeline' : 'My RFQs'}</h3>
+          <p>
+            {auth?.actor === 'internal'
+              ? 'Track active RFQs and open full detail in one click.'
+              : 'View and manage your active requests for quotes.'}
+          </p>
           <button className="inline-btn" onClick={() => setPage('rfqs')}>
-            Open RFQs
+            {auth?.actor === 'internal' ? 'Open RFQs' : 'View My RFQs'}
           </button>
         </article>
-        <article className="quick-card">
-          <h3>Order Ops</h3>
-          <p>Review allocations, shipments, docs, and assigned services.</p>
-          <button className="inline-btn" onClick={() => setPage('orders')}>
-            Open Orders
-          </button>
-        </article>
+        {auth?.actor === 'internal' && (
+          <article className="quick-card">
+            <h3>Order Ops</h3>
+            <p>Review allocations, shipments, docs, and assigned services.</p>
+            <button className="inline-btn" onClick={() => setPage('orders')}>
+              Open Orders
+            </button>
+          </article>
+        )}
       </section>
 
       <section className="page-section">
@@ -514,8 +623,84 @@ function App() {
     <section className="page-section">
       <div className="section-head">
         <h3 className="section-title">All Requests</h3>
-        <span className="muted">{requests.length} total</span>
+        <div>
+          <span className="muted">{requests.length} total</span>
+          {auth?.actor === 'customer' && !showNewRequestForm && (
+            <button className="inline-btn" style={{ marginLeft: '1rem' }} onClick={() => setShowNewRequestForm(true)}>
+              + New Request
+            </button>
+          )}
+        </div>
       </div>
+
+      {showNewRequestForm && (
+        <article className="detail-card" style={{ marginBottom: '2rem' }}>
+          <h4>Create New Request</h4>
+          <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <select
+              value={newRequestData.category}
+              onChange={(e) => setNewRequestData({ ...newRequestData, category: e.target.value })}
+              className="text-input"
+            >
+              <option>New Product Request</option>
+              <option>New Formula Request</option>
+              <option>Reformulation Request</option>
+              <option>Ingredients Change Request</option>
+              <option>Component Change Request</option>
+              <option>Logistics Request</option>
+            </select>
+            <input
+              placeholder="Request Title"
+              value={newRequestData.title}
+              onChange={(e) => setNewRequestData({ ...newRequestData, title: e.target.value })}
+              className="text-input"
+            />
+            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+              <span className="muted">Deadline:</span>
+              <input
+                type="date"
+                value={newRequestData.deadline}
+                onChange={(e) => setNewRequestData({ ...newRequestData, deadline: e.target.value })}
+                className="text-input"
+                style={{ flex: 1 }}
+              />
+            </div>
+            <textarea
+              placeholder="Description"
+              value={newRequestData.description}
+              onChange={(e) => setNewRequestData({ ...newRequestData, description: e.target.value })}
+              className="text-input"
+              rows={3}
+            />
+            {(newRequestData.category.includes('Formula') || newRequestData.category.includes('Reformulation') || newRequestData.category.includes('Ingredients')) && (
+              <textarea
+                placeholder="Ingredients / Formula Details"
+                value={newRequestData.ingredients}
+                onChange={(e) => setNewRequestData({ ...newRequestData, ingredients: e.target.value })}
+                className="text-input"
+                rows={3}
+              />
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <span className="muted">Attachment (Optional):</span>
+              <input
+                type="file"
+                onChange={(e) => setNewRequestFile(e.target.files?.[0] || null)}
+                className="text-input"
+              />
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button className="inline-btn" onClick={handleCreateRequest} disabled={isLoading}>
+                {isLoading ? 'Creating...' : 'Create Request'}
+              </button>
+              <button className="inline-btn light" onClick={() => setShowNewRequestForm(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </article>
+      )}
+
       <div className="list-table">
         {requests.map((request) => (
           <button
@@ -526,6 +711,7 @@ function App() {
             <span className="badge">{request.state}</span>
             <span className="row-main">{request.title}</span>
             <span className="row-meta">
+              {request.category && <span>{request.category} | </span>}
               {request.priority || 'normal'} | {formatDate(request.created_at)}
             </span>
           </button>
@@ -579,10 +765,103 @@ function App() {
                 Complete
               </button>
             )}
+            {auth?.actor === 'internal' && selectedRequest.state === 'submitted' && (
+              <button className="inline-btn light" style={{ color: 'red' }} onClick={() => setIsRejecting(true)}>
+                Reject
+              </button>
+            )}
+            <button className="inline-btn light" style={{ color: 'red', marginLeft: 'auto' }} onClick={handleDeleteRequest} disabled={isLoading}>
+              Delete
+            </button>
           </div>
         </div>
 
         {(errors.thread || errors.action) && <p className="banner-error">{errors.thread || errors.action}</p>}
+
+        {isRejecting && (
+          <article className="detail-card" style={{ marginBottom: '1rem', border: '1px solid red' }}>
+            <h4>Reject Request</h4>
+            <p className="muted">Please provide a reason for rejection.</p>
+            <textarea
+              className="text-input"
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Reason for rejection..."
+              rows={3}
+            />
+            <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
+              <button className="inline-btn" onClick={async () => {
+                await runTransition('reject_request', { reason: rejectReason });
+                setIsRejecting(false);
+                setRejectReason('');
+              }}>
+                Confirm Reject
+              </button>
+              <button className="inline-btn light" onClick={() => setIsRejecting(false)}>
+                Cancel
+              </button>
+            </div>
+          </article>
+        )}
+
+        <div className="detail-main">
+          <article className="detail-card">
+            <h4>Request Details</h4>
+            <p><strong>Category:</strong> {selectedRequest.category || 'N/A'}</p>
+            {selectedRequest.deadline && (
+              <p><strong>Deadline:</strong> {formatDate(selectedRequest.deadline)}</p>
+            )}
+            {selectedRequest.metadata?.ingredients && (
+              <p><strong>Ingredients:</strong> {selectedRequest.metadata.ingredients}</p>
+            )}
+            <p><strong>Description:</strong> {selectedRequest.description || 'No description provided.'}</p>
+          </article>
+
+          <article className="detail-card">
+            <h4>Attachments</h4>
+            <ul className="simple-list">
+              {requestDocs.map((doc) => (
+                <li key={doc.id}>
+                  <span className="row-main">{doc.filename}</span>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <a
+                      href={`http://localhost:3000${doc.storage_path}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-btn inline-text"
+                    >
+                      View
+                    </a>
+                    <a
+                      href={`http://localhost:3000${doc.storage_path}`}
+                      download={doc.filename}
+                      className="text-btn inline-text"
+                    >
+                      Download
+                    </a>
+                  </div>
+                </li>
+              ))}
+              {requestDocs.length === 0 && <li className="muted">No attachments yet.</li>}
+            </ul>
+            <div className="composer" style={{ marginTop: '1rem' }}>
+              <input
+                type="file"
+                onChange={handleFileUpload}
+                disabled={isUploading}
+                style={{ display: 'none' }}
+                id="request-file-upload"
+              />
+              <label
+                htmlFor="request-file-upload"
+                className="inline-btn light"
+                style={{ cursor: 'pointer' }}
+              >
+                {isUploading ? 'Uploading...' : 'Attach File (PDF/Image)'}
+              </label>
+            </div>
+          </article>
+        </div>
 
         <article className="detail-card">
           <h4>Conversation</h4>
@@ -736,124 +1015,152 @@ function App() {
 
         {(errors.order || errors.action) && <p className="banner-error">{errors.order || errors.action}</p>}
 
-        <div className="detail-grid">
+        <div className="detail-main">
           <article className="detail-card">
-            <h4>Required Documents</h4>
-            <ul className="simple-list">
-              {docsForState.map((doc) => (
-                <li key={doc}>
-                  <span>{doc}</span>
-                </li>
-              ))}
-              {docsForState.length === 0 && <li>No required documents defined.</li>}
-            </ul>
-
-            <h4>Uploaded Documents</h4>
-            <ul className="simple-list">
-              {orderDocs.map((doc) => (
-                <li key={`${doc.name}-${doc.version || 1}`}>
-                  <span>{doc.name}</span>
-                  <span>
-                    {doc.requiredFor} v{doc.version || 1}
-                  </span>
-                </li>
-              ))}
-              {orderDocs.length === 0 && <li>No uploaded documents yet.</li>}
-            </ul>
-
-            <div className="composer">
-              <input
-                placeholder="Document name"
-                value={newDocName}
-                onChange={(event) => setNewDocName(event.target.value)}
-                disabled={docsLoading}
-              />
-              <button className="inline-btn" onClick={uploadDocument} disabled={docsLoading}>
-                Upload
-              </button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <h4>Order Summary</h4>
+                <p><strong>Order #:</strong> {orderDetail.order.order_number}</p>
+                <p><strong>State:</strong> <span className="badge">{orderDetail.order.state}</span></p>
+                {orderDetail.order.expedite_fee && (
+                  <p style={{ color: 'var(--accent)' }}><strong>Expedite Fee:</strong> {orderDetail.order.expedite_fee}</p>
+                )}
+              </div>
+              {orderDetail.order.tracking_number && (
+                <div style={{ textAlign: 'right' }}>
+                  <p><strong>Tracking:</strong> {orderDetail.order.tracking_number}</p>
+                  <p><small className="muted">{orderDetail.order.carrier_status || 'In Transit'}</small></p>
+                  <button className="inline-btn light" onClick={async () => {
+                    try {
+                      const track = await trackShipment(orderDetail.order.id, auth!);
+                      alert(`Latest Status: ${track.tracking.carrierStatus}\nLocation: ${track.tracking.events[0].location}`);
+                    } catch (e) { alert('Tracking service unavailable'); }
+                  }}>
+                    Track via Unishippers
+                  </button>
+                </div>
+              )}
             </div>
-            {docError && <p className="banner-error">{docError}</p>}
           </article>
-
-          <article className="detail-card">
-            <h4>Service Assignments</h4>
-            <ul className="simple-list">
-              {serviceAssignments.map((assignment) => (
-                <li key={assignment.serviceId}>
-                  <span>
-                    {services.find((service) => service.id === assignment.serviceId)?.name ||
-                      assignment.serviceId}
-                  </span>
-                  <span>
-                    {assignment.status}
-                    {auth?.actor === 'internal' && assignment.status !== 'approved' && (
-                      <button
-                        className="text-btn inline-text"
-                        onClick={() => markServiceApproved(assignment.serviceId)}
-                      >
-                        Approve
-                      </button>
-                    )}
-                  </span>
-                </li>
-              ))}
-              {serviceAssignments.length === 0 && <li>No services assigned yet.</li>}
-            </ul>
-
-            <div className="composer">
-              <select
-                value={selectedServiceId}
-                onChange={(event) => setSelectedServiceId(event.target.value)}
-              >
-                <option value="">Select service</option>
-                {services.map((service) => (
-                  <option key={service.id} value={service.id}>
-                    {service.name} ({service.attachTo})
-                  </option>
+          <div className="detail-grid">
+            <article className="detail-card">
+              <h4>Required Documents</h4>
+              <ul className="simple-list">
+                {docsForState.map((doc) => (
+                  <li key={doc}>
+                    <span>{doc}</span>
+                  </li>
                 ))}
-              </select>
-              <button className="inline-btn" onClick={attachService}>
-                Attach
-              </button>
-            </div>
+                {docsForState.length === 0 && <li>No required documents defined.</li>}
+              </ul>
 
-            <h4>Allocations</h4>
-            <ul className="simple-list">
-              {orderDetail.allocations.map((allocation) => (
-                <li key={allocation.lot}>
-                  <span>{allocation.lot}</span>
-                  <span>
-                    {allocation.status} | Qty {allocation.qty}
-                  </span>
-                </li>
-              ))}
-              {orderDetail.allocations.length === 0 && <li>No allocations.</li>}
-            </ul>
+              <h4>Uploaded Documents</h4>
+              <ul className="simple-list">
+                {orderDocs.map((doc) => (
+                  <li key={`${doc.name}-${doc.version || 1}`}>
+                    <span>{doc.name}</span>
+                    <span>
+                      {doc.requiredFor} v{doc.version || 1}
+                    </span>
+                  </li>
+                ))}
+                {orderDocs.length === 0 && <li>No uploaded documents yet.</li>}
+              </ul>
 
-            <h4>Shipments</h4>
-            <ul className="simple-list">
-              {orderDetail.shipments.map((shipment, index) => (
-                <li key={`${shipment.tracking}-${index}`}>
-                  <span>{shipment.carrier}</span>
-                  <span>
-                    {shipment.tracking} | ETA {formatDateTime(shipment.eta)}
-                  </span>
-                </li>
-              ))}
-              {orderDetail.shipments.length === 0 && <li>No shipment records.</li>}
-            </ul>
+              <div className="composer">
+                <input
+                  placeholder="Document name"
+                  value={newDocName}
+                  onChange={(event) => setNewDocName(event.target.value)}
+                  disabled={docsLoading}
+                />
+                <button className="inline-btn" onClick={uploadDocument} disabled={docsLoading}>
+                  Upload
+                </button>
+              </div>
+              {docError && <p className="banner-error">{docError}</p>}
+            </article>
 
-            <h4>Inventory Events</h4>
-            <ul className="simple-list">
-              {orderEvents.map((event, index) => (
-                <li key={`${event.ts}-${index}`}>
-                  <span>{event.type}</span>
-                  <span>{event.detail}</span>
-                </li>
-              ))}
-              {orderEvents.length === 0 && <li>No related events.</li>}
-            </ul>
-          </article>
+            <article className="detail-card">
+              <h4>Service Assignments</h4>
+              <ul className="simple-list">
+                {serviceAssignments.map((assignment) => (
+                  <li key={assignment.serviceId}>
+                    <span>
+                      {services.find((service) => service.id === assignment.serviceId)?.name ||
+                        assignment.serviceId}
+                    </span>
+                    <span>
+                      {assignment.status}
+                      {auth?.actor === 'internal' && assignment.status !== 'approved' && (
+                        <button
+                          className="text-btn inline-text"
+                          onClick={() => markServiceApproved(assignment.serviceId)}
+                        >
+                          Approve
+                        </button>
+                      )}
+                    </span>
+                  </li>
+                ))}
+                {serviceAssignments.length === 0 && <li>No services assigned yet.</li>}
+              </ul>
+
+              <div className="composer">
+                <select
+                  value={selectedServiceId}
+                  onChange={(event) => setSelectedServiceId(event.target.value)}
+                >
+                  <option value="">Select service</option>
+                  {services.map((service) => (
+                    <option key={service.id} value={service.id}>
+                      {service.name} ({service.attachTo})
+                    </option>
+                  ))}
+                </select>
+                <button className="inline-btn" onClick={attachService}>
+                  Attach
+                </button>
+              </div>
+
+              <h4>Allocations</h4>
+              <ul className="simple-list">
+                {orderDetail.allocations.map((allocation) => (
+                  <li key={allocation.lot}>
+                    <span>{allocation.lot}</span>
+                    <span>
+                      {allocation.status} | Qty {allocation.qty}
+                    </span>
+                  </li>
+                ))}
+                {orderDetail.allocations.length === 0 && <li>No allocations.</li>}
+              </ul>
+
+              <h4>Shipments</h4>
+              <ul className="simple-list">
+                {orderDetail.shipments.map((shipment, index) => (
+                  <li key={`${shipment.tracking}-${index}`}>
+                    <span>{shipment.carrier}</span>
+                    <span>
+                      {shipment.tracking} | ETA {formatDateTime(shipment.eta)}
+                    </span>
+                  </li>
+                ))}
+                {orderDetail.shipments.length === 0 && <li>No shipment records.</li>}
+              </ul>
+
+              <h4>Inventory Events</h4>
+              <ul className="simple-list">
+                {orderEvents.map((event, index) => (
+                  <li key={`${event.ts}-${index}`}>
+                    <span>{event.type}</span>
+                    <span>{event.detail}</span>
+                  </li>
+                ))}
+                {orderEvents.length === 0 && <li>No related events.</li>}
+              </ul>
+            </article>
+          </div>
         </div>
       </section>
     );
@@ -1023,19 +1330,8 @@ function App() {
           <p className="chip">Tenant: {auth.customerId}</p>
           <p className="chip">Membership: {auth.membershipId}</p>
 
-          <div className="actor-toggle">
-            <button
-              className={`actor-btn ${auth.actor === 'customer' ? 'active' : ''}`}
-              onClick={() => switchActor('customer')}
-            >
-              Customer View
-            </button>
-            <button
-              className={`actor-btn ${auth.actor === 'internal' ? 'active' : ''}`}
-              onClick={() => switchActor('internal')}
-            >
-              Internal View
-            </button>
+          <div className="actor-info">
+            <p className="chip">Role: {auth.actor}</p>
           </div>
 
           <button className="logout-btn" onClick={logout}>

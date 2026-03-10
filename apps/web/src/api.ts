@@ -3,7 +3,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? '/api'
 const DEFAULT_CUSTOMER_ID = import.meta.env.VITE_CUSTOMER_ID || 'demo-customer';
 const DEFAULT_MEMBERSHIP_ID = import.meta.env.VITE_MEMBERSHIP_ID || 'demo-membership';
 
-type HttpMethod = 'GET' | 'POST';
+type HttpMethod = 'GET' | 'POST' | 'DELETE';
 
 interface RequestOptions {
   method?: HttpMethod;
@@ -28,7 +28,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     try {
       const parsed = JSON.parse(text) as { error?: string; message?: string };
       message = parsed.error || parsed.message || message;
-    } catch {}
+    } catch { }
     throw new Error(message);
   }
   return res.json();
@@ -41,11 +41,24 @@ export interface RequestItem {
   priority: string | null;
   created_at: string;
   category?: string | null;
+  description?: string | null;
+  deadline?: string | null;
+  metadata?: any;
 }
 
 export async function fetchRequests(m?: { membershipId?: string; customerId?: string }): Promise<RequestItem[]> {
   const data = await request<{ requests: RequestItem[] }>('/requests', m);
   return data.requests;
+}
+
+export async function createRequest(payload: { title: string; description?: string; category?: string; subcategory?: string; deadline?: string; metadata?: any }, m?: { membershipId?: string; customerId?: string }): Promise<RequestItem> {
+  const data = await request<{ request: RequestItem }>('/requests', {
+    method: 'POST',
+    body: payload,
+    membershipId: m?.membershipId,
+    customerId: m?.customerId,
+  });
+  return data.request;
 }
 
 export interface ThreadMessage {
@@ -73,7 +86,7 @@ export async function postRequestMessage(id: string, body: string, m?: { members
   });
 }
 
-export async function transitionRequest(id: string, transitionKey: string, m?: { membershipId?: string; customerId?: string }, payload?: unknown) {
+export async function transitionRequest(id: string, transitionKey: string, payload?: unknown, m?: { membershipId?: string; customerId?: string }) {
   return request(`/requests/${id}/transition`, {
     method: 'POST',
     body: {
@@ -83,6 +96,53 @@ export async function transitionRequest(id: string, transitionKey: string, m?: {
     membershipId: m?.membershipId,
     customerId: m?.customerId,
   });
+}
+
+export async function deleteRequest(id: string, m?: { membershipId?: string; customerId?: string }) {
+  return request(`/requests/${id}`, {
+    method: 'DELETE',
+    membershipId: m?.membershipId,
+    customerId: m?.customerId,
+  });
+}
+
+export async function trackShipment(orderId: string, m?: { membershipId?: string; customerId?: string }): Promise<{ tracking: any }> {
+  return request<{ tracking: any }>(`/logistics/track/${orderId}`, m);
+}
+
+export interface DocumentItem {
+  id: string;
+  filename: string;
+  storage_path: string;
+  uploaded_by: string;
+  created_at: string;
+}
+
+export async function fetchRequestDocuments(requestId: string, m?: { membershipId?: string; customerId?: string }): Promise<DocumentItem[]> {
+  const data = await request<{ documents: DocumentItem[] }>(`/documents/request/${requestId}`, m);
+  return data.documents;
+}
+
+export async function uploadRequestDocument(requestId: string, file: File, m?: { membershipId?: string; customerId?: string }): Promise<DocumentItem> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const res = await fetch(`${API_BASE}/documents/request/${requestId}`, {
+    method: 'POST',
+    body: formData,
+    headers: {
+      'x-customer-id': m?.customerId || DEFAULT_CUSTOMER_ID,
+      'x-membership-id': m?.membershipId || DEFAULT_MEMBERSHIP_ID,
+    },
+  });
+
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Failed to upload document');
+  }
+
+  const data = await res.json();
+  return data.document;
 }
 
 export interface RfqItem {
@@ -98,6 +158,11 @@ export interface OrderItem {
   id: string;
   order_number: string;
   state: string;
+  tracking_number?: string | null;
+  batch_number?: string | null;
+  eta?: string | null;
+  expedite_fee?: string | null;
+  carrier_status?: string | null;
   created_at: string;
 }
 
@@ -116,7 +181,7 @@ export async function fetchOrders(m?: { membershipId?: string; customerId?: stri
 }
 
 export interface OrderDetail {
-  order: OrderItem & { tracking_number?: string | null; batch_number?: string | null; eta?: string | null };
+  order: OrderItem;
   allocations: { lot: string; status: string; qty: number }[];
   shipments: { carrier: string; tracking: string; eta: string | null }[];
 }
