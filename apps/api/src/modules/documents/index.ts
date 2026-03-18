@@ -3,7 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { db } from '../../db/index.js';
-import { documents, requests } from '../../db/schema.js';
+import { documents, requests, orders } from '../../db/schema.js';
 import { withTenant } from '../../db/tenant.js';
 import { eq, and } from 'drizzle-orm';
 
@@ -80,5 +80,105 @@ documentsRouter.get('/request/:id', async (req, res) => {
         res.json({ documents: docs });
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch documents' });
+    }
+});
+
+// DELETE /documents/request/:docId
+documentsRouter.delete('/request/:docId', async (req, res) => {
+    try {
+        const customerId = req.tenant!.customerId;
+        const docId = req.params.docId;
+
+        const [doc] = await db.select().from(documents)
+            .where(and(eq(documents.id, docId), eq(documents.customer_id, customerId), eq(documents.entity_type, 'request')));
+        
+        if (!doc) return res.status(404).json({ error: 'Document not found' });
+
+        await db.delete(documents).where(eq(documents.id, docId));
+        
+        try {
+            const filePath = isVercel ? '/tmp' + doc.storage_path : path.join(process.cwd(), doc.storage_path);
+            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        } catch (e) {
+            console.error('Failed to unlink file:', e);
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to delete document' });
+    }
+});
+
+// POST /documents/order/:id
+documentsRouter.post('/order/:id', upload.single('file'), async (req, res) => {
+    try {
+        const customerId = req.tenant!.customerId;
+        const userId = req.auth?.userId;
+        const orderId = req.params.id;
+
+        if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+        const reqQuery = db.select().from(orders);
+        const [orderItem] = await withTenant(reqQuery, orders, customerId, eq(orders.id, orderId));
+        if (!orderItem) {
+            fs.unlinkSync(req.file.path);
+            return res.status(404).json({ error: 'Order not found' });
+        }
+
+        const [doc] = await db.insert(documents).values({
+            customer_id: customerId,
+            filename: req.file.originalname,
+            storage_path: `/uploads/${req.file.filename}`,
+            uploaded_by: userId,
+            entity_type: 'order',
+            entity_id: orderId,
+        }).returning();
+
+        res.status(201).json({ document: doc });
+    } catch (error: any) {
+        if (req.file) fs.unlinkSync(req.file.path);
+        res.status(500).json({ error: 'Failed to upload document' });
+    }
+});
+
+// GET /documents/order/:id
+documentsRouter.get('/order/:id', async (req, res) => {
+    try {
+        const customerId = req.tenant!.customerId;
+        const orderId = req.params.id;
+
+        const query = db.select().from(documents);
+        const docs = await withTenant(query, documents, customerId, and(eq(documents.entity_id, orderId), eq(documents.entity_type, 'order')));
+
+        res.json({ documents: docs });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch documents' });
+    }
+});
+
+// DELETE /documents/order/:docId
+documentsRouter.delete('/order/:docId', async (req, res) => {
+    try {
+        const customerId = req.tenant!.customerId;
+        const docId = req.params.docId;
+
+        const [doc] = await db.select().from(documents)
+            .where(and(eq(documents.id, docId), eq(documents.customer_id, customerId), eq(documents.entity_type, 'order')));
+        
+        if (!doc) return res.status(404).json({ error: 'Document not found' });
+
+        await db.delete(documents).where(eq(documents.id, docId));
+        
+        try {
+            const filePath = isVercel ? '/tmp' + doc.storage_path : path.join(process.cwd(), doc.storage_path);
+            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        } catch (e) {
+            console.error('Failed to unlink file:', e);
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to delete document' });
     }
 });

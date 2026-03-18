@@ -9,6 +9,7 @@ import {
   fetchOrders,
   fetchOrderDetail,
   fetchNotifications,
+  markNotificationsRead,
   postRequestMessage,
   transitionRequest,
   fetchMeta,
@@ -22,6 +23,7 @@ import {
   trackShipment,
   fetchRequestDocuments,
   uploadRequestDocument,
+  deleteRequestDocument,
   negotiateRfq,
   approveRfqQuotation,
   requestOrderModification,
@@ -182,7 +184,6 @@ function App() {
   const [rdFeedback, setRdFeedback] = useState<{ id: string; feedback_text: string; rating: string; created_at: string }[]>([]);
 
   const [comment, setComment] = useState('');
-  const [newDocName, setNewDocName] = useState('');
   const [selectedServiceId, setSelectedServiceId] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<AppErrors>({});
@@ -202,6 +203,7 @@ function App() {
     docs: orderDocs,
     load: loadOrderDocs,
     upload: uploadOrderDoc,
+    remove: removeOrderDoc,
     loading: docsLoading,
     error: docError,
   } = useOrderDocuments(selectedOrderId);
@@ -226,6 +228,8 @@ function App() {
     }
     return 'dashboard';
   })();
+
+  const unreadCount = notifications.filter(n => !n.is_read).length;
 
   const loadWorkspace = async (session: AuthCtx) => {
     setIsLoading(true);
@@ -402,7 +406,6 @@ function App() {
     setOrderDetail(null);
     setServiceAssignments([]);
     setComment('');
-    setNewDocName('');
     setSelectedServiceId('');
     setErrors({});
   };
@@ -554,10 +557,27 @@ function App() {
     }
   };
 
-  const uploadDocument = async () => {
-    if (!newDocName.trim()) return;
-    await uploadOrderDoc(newDocName.trim(), orderDetail?.order.state);
-    setNewDocName('');
+  const handleOrderFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !auth || !selectedOrderId) return;
+    await uploadOrderDoc(file);
+    e.target.value = '';
+  };
+
+  const handleDeleteRequestDoc = async (docId: string) => {
+    if (!auth || !selectedRequestId) return;
+    if (!window.confirm('Delete this document?')) return;
+    try {
+      await deleteRequestDocument(docId, auth);
+      setRequestDocs(docs => docs.filter(d => d.id !== docId));
+    } catch {
+      alert('Failed to delete document');
+    }
+  };
+
+  const handleDeleteOrderDoc = async (docId: string) => {
+    if (!window.confirm('Delete this document?')) return;
+    await removeOrderDoc(docId);
   };
 
   const handleNegotiate = async () => {
@@ -899,6 +919,13 @@ function App() {
                     >
                       Download
                     </a>
+                    <button
+                        className="text-btn inline-text"
+                        style={{ color: 'red' }}
+                        onClick={() => handleDeleteRequestDoc(doc.id)}
+                    >
+                      Delete
+                    </button>
                   </div>
                 </li>
               ))}
@@ -1237,26 +1264,32 @@ function App() {
               <h4>Uploaded Documents</h4>
               <ul className="simple-list">
                 {orderDocs.map((doc) => (
-                  <li key={`${doc.name}-${doc.version || 1}`}>
-                    <span>{doc.name}</span>
-                    <span>
-                      {doc.requiredFor} v{doc.version || 1}
-                    </span>
+                  <li key={doc.id}>
+                    <span className="row-main">{doc.filename}</span>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <a href={`http://localhost:3000${doc.storage_path}`} target="_blank" rel="noopener noreferrer" className="text-btn inline-text">View</a>
+                      <button className="text-btn inline-text" style={{ color: 'red' }} onClick={() => handleDeleteOrderDoc(doc.id)} disabled={docsLoading}>Delete</button>
+                    </div>
                   </li>
                 ))}
                 {orderDocs.length === 0 && <li>No uploaded documents yet.</li>}
               </ul>
 
-              <div className="composer">
+              <div className="composer" style={{ marginTop: '1rem' }}>
                 <input
-                  placeholder="Document name"
-                  value={newDocName}
-                  onChange={(event) => setNewDocName(event.target.value)}
+                  type="file"
+                  onChange={handleOrderFileUpload}
                   disabled={docsLoading}
+                  style={{ display: 'none' }}
+                  id="order-file-upload"
                 />
-                <button className="inline-btn" onClick={uploadDocument} disabled={docsLoading}>
-                  Upload
-                </button>
+                <label
+                  htmlFor="order-file-upload"
+                  className="inline-btn light"
+                  style={{ cursor: 'pointer' }}
+                >
+                  {docsLoading ? 'Uploading...' : 'Attach File (PDF/Image)'}
+                </label>
               </div>
               {docError && <p className="banner-error">{docError}</p>}
             </article>
@@ -1469,8 +1502,8 @@ function App() {
     <div className="crm-shell">
       <aside className="sidebar" style={{ backgroundColor: meta?.branding?.theme_config?.sidebarColor }}>
         <div className="brand-block">
-          <img src={meta?.branding?.logo_url || logo} alt="Portal" />
-          <p>{meta?.branding?.name || 'Babylon CRM'}</p>
+          <img src={logo} alt="Babylon" />
+          <p>Babylon CRM</p>
         </div>
 
         <nav className="nav-group">
@@ -1500,9 +1533,20 @@ function App() {
           </button>
           <button
             className={`nav-btn ${activeNav === 'notifications' ? 'active' : ''}`}
-            onClick={() => setPage('notifications')}
+            onClick={() => {
+              setPage('notifications');
+              if (auth && unreadCount > 0) {
+                markNotificationsRead(auth).catch(console.error);
+                setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+              }
+            }}
           >
             Notifications
+            {unreadCount > 0 && (
+              <span style={{ marginLeft: '8px', background: 'red', color: 'white', borderRadius: '12px', padding: '2px 8px', fontSize: '0.8rem', fontWeight: 'bold' }}>
+                {unreadCount}
+              </span>
+            )}
           </button>
         </nav>
 

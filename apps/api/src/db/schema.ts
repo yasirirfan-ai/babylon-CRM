@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uuid, jsonb, pgEnum, index } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, uuid, jsonb, pgEnum, index, boolean } from 'drizzle-orm/pg-core';
 
 export const actorTypeEnum = pgEnum('actor_type', ['internal', 'customer']);
 
@@ -108,6 +108,7 @@ export const outboxEvents = pgTable('outbox_events', {
     event_type: text('event_type').notNull(),
     payload: jsonb('payload').notNull(),
     status: text('status').notNull().default('pending'),
+    is_read: boolean('is_read').default(false),
     processed_at: timestamp('processed_at'),
     created_at: timestamp('created_at').defaultNow().notNull(),
 });

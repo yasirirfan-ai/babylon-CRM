@@ -73,6 +73,7 @@ api.use('/logistics', logisticsRouter);
 api.use('/pim', pimRouter);
 api.use('/services', servicesRouter);
 api.use('/rd', rdRouter);
+api.use('/documents', documentsRouter);
 api.use('/demo', demoRouter);
 
 app.use('/api', api);

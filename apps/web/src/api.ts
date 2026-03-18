@@ -3,7 +3,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? '/api'
 const DEFAULT_CUSTOMER_ID = import.meta.env.VITE_CUSTOMER_ID || 'demo-customer';
 const DEFAULT_MEMBERSHIP_ID = import.meta.env.VITE_MEMBERSHIP_ID || 'demo-membership';
 
-type HttpMethod = 'GET' | 'POST' | 'DELETE';
+type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
 interface RequestOptions {
   method?: HttpMethod;
@@ -146,6 +146,14 @@ export async function uploadRequestDocument(requestId: string, file: File, m?: {
   return data.document;
 }
 
+export async function deleteRequestDocument(docId: string, m?: { membershipId?: string; customerId?: string }): Promise<void> {
+  await request(`/documents/request/${docId}`, {
+    method: 'DELETE',
+    membershipId: m?.membershipId,
+    customerId: m?.customerId,
+  });
+}
+
 export interface BrandItem {
   id: string;
   name: string;
@@ -246,12 +254,21 @@ export interface NotificationItem {
   id: string;
   event_type: string;
   payload: any;
+  is_read?: boolean;
   created_at: string;
 }
 
 export async function fetchNotifications(m?: { membershipId?: string; customerId?: string }): Promise<NotificationItem[]> {
   const data = await request<{ notifications: NotificationItem[] }>('/notifications', m);
   return data.notifications;
+}
+
+export async function markNotificationsRead(m?: { membershipId?: string; customerId?: string }): Promise<void> {
+  await request('/notifications/read', {
+    method: 'PUT',
+    membershipId: m?.membershipId,
+    customerId: m?.customerId,
+  });
 }
 
 export async function fetchMeta() {
@@ -280,14 +297,38 @@ export async function fetchRd() {
   return request<{ rdRequests: { id: string; title: string; state: string; owner: string; customer_visible: boolean }[] }>('/rd');
 }
 
-export async function fetchOrderDocuments(orderId: string) {
-  return request<{ documents: { name: string; requiredFor: string; link?: string }[] }>(`/demo/documents/order/${orderId}`);
+export async function fetchOrderDocuments(orderId: string, m?: { membershipId?: string; customerId?: string }): Promise<DocumentItem[]> {
+  const data = await request<{ documents: DocumentItem[] }>(`/documents/order/${orderId}`, m);
+  return data.documents;
 }
 
-export async function uploadOrderDocument(orderId: string, name: string, requiredFor?: string) {
-  return request<{ documents: { name: string; requiredFor: string; link?: string; version: number }[] }>(`/demo/documents/order/${orderId}`, {
+export async function uploadOrderDocument(orderId: string, file: File, m?: { membershipId?: string; customerId?: string }): Promise<DocumentItem> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const res = await fetch(`${API_BASE}/documents/order/${orderId}`, {
     method: 'POST',
-    body: { name, requiredFor },
+    body: formData,
+    headers: {
+      'x-customer-id': m?.customerId || DEFAULT_CUSTOMER_ID,
+      'x-membership-id': m?.membershipId || DEFAULT_MEMBERSHIP_ID,
+    },
+  });
+
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Failed to upload document');
+  }
+
+  const data = await res.json();
+  return data.document;
+}
+
+export async function deleteOrderDocument(docId: string, m?: { membershipId?: string; customerId?: string }): Promise<void> {
+  await request(`/documents/order/${docId}`, {
+    method: 'DELETE',
+    membershipId: m?.membershipId,
+    customerId: m?.customerId,
   });
 }
 

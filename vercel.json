@@ -26,8 +26,12 @@
             "destination": "/apps/api/src/main.ts"
         },
         {
-            "source": "/(.*)",
+            "source": "/uploads/(.*)",
             "destination": "/apps/api/src/main.ts"
+        },
+        {
+            "source": "/(.*)",
+            "destination": "/index.html"
         }
     ],
     "installCommand": "npm install",

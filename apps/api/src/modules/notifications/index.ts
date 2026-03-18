@@ -21,3 +21,18 @@ notificationsRouter.get('/', async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch notifications' });
     }
 });
+
+// PUT /notifications/read
+notificationsRouter.put('/read', async (req, res) => {
+    try {
+        const customerId = req.tenant!.customerId;
+        await db.update(outboxEvents)
+            .set({ is_read: true })
+            .where(eq(outboxEvents.customer_id, customerId));
+        
+        res.json({ success: true });
+    } catch (error) {
+        console.error('mark read failed', error);
+        res.status(500).json({ error: 'Failed to mark notifications read' });
+    }
+});

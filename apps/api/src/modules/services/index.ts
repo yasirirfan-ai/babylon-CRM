@@ -45,7 +45,7 @@ servicesRouter.get('/assignments/:entityId', async (req, res) => {
             eq(serviceAssignments.entity_id, req.params.entityId)
         ));
 
-    res.json({ assignments: result });
+    res.json({ assignments: result.map(a => ({ serviceId: a.service_id, status: a.status })) });
 });
 
 servicesRouter.post('/assign', async (req, res) => {
@@ -71,7 +71,7 @@ servicesRouter.post('/assign', async (req, res) => {
     });
 
     const refreshed = await db.select().from(serviceAssignments).where(eq(serviceAssignments.entity_id, entityId));
-    res.json({ assignments: refreshed });
+    res.json({ assignments: refreshed.map(a => ({ serviceId: a.service_id, status: a.status })) });
 });
 
 servicesRouter.post('/approve', async (req, res) => {
@@ -87,5 +87,5 @@ servicesRouter.post('/approve', async (req, res) => {
         ));
 
     const refreshed = await db.select().from(serviceAssignments).where(eq(serviceAssignments.entity_id, entityId));
-    res.json({ assignments: refreshed });
+    res.json({ assignments: refreshed.map(a => ({ serviceId: a.service_id, status: a.status })) });
 });
