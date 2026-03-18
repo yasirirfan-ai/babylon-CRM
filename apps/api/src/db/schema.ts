@@ -7,6 +7,8 @@ export const actorTypeEnum = pgEnum('actor_type', ['internal', 'customer']);
 export const customers = pgTable('customers', {
     id: uuid('id').primaryKey().defaultRandom(),
     name: text('name').notNull(),
+    logo_url: text('logo_url'),
+    theme_config: jsonb('theme_config'),
     created_at: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -150,7 +152,40 @@ export const documentAccessLogs = pgTable('document_access_logs', {
     accessed_at: timestamp('accessed_at').defaultNow().notNull(),
 });
 
-// 3. Business Starter Entity
+// 3. Brand and Product (PIM)
+
+export const brands = pgTable('brands', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    customer_id: uuid('customer_id').notNull().references(() => customers.id),
+    name: text('name').notNull(),
+    logo_url: text('logo_url'),
+    theme_config: jsonb('theme_config'), // Branding customization
+    created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const products = pgTable('products', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    customer_id: uuid('customer_id').notNull().references(() => customers.id),
+    brand_id: uuid('brand_id').notNull().references(() => brands.id),
+    sku: text('sku').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
+    created_at: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+    skuIdx: index('products_sku_idx').on(table.customer_id, table.sku),
+}));
+
+export const productRevisions = pgTable('product_revisions', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    product_id: uuid('product_id').notNull().references(() => products.id),
+    revision_number: text('revision_number').notNull(),
+    status: text('status').notNull().default('draft'), // draft|active|archived
+    specifications: jsonb('specifications'),
+    formula_data: jsonb('formula_data'),
+    created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+// 4. Business Starter Entity
 
 export const requests = pgTable('requests', {
     id: uuid('id').primaryKey().defaultRandom(),
@@ -164,6 +199,7 @@ export const requests = pgTable('requests', {
     metadata: jsonb('metadata'),
     created_by_membership_id: uuid('created_by_membership_id').notNull().references(() => memberships.id),
     assigned_to_membership_id: uuid('assigned_to_membership_id').references(() => memberships.id),
+    product_id: uuid('product_id').references(() => products.id),
     deadline: timestamp('deadline'),
     created_at: timestamp('created_at').defaultNow().notNull(),
     updated_at: timestamp('updated_at').defaultNow().notNull(),
@@ -171,14 +207,28 @@ export const requests = pgTable('requests', {
     stateIdx: index('requests_state_idx').on(table.customer_id, table.state),
 }));
 
-// Lightweight RFQs & Orders for UI wiring
 export const rfqs = pgTable('rfqs', {
     id: uuid('id').primaryKey().defaultRandom(),
     customer_id: uuid('customer_id').notNull().references(() => customers.id),
+    product_id: uuid('product_id').references(() => products.id), // Root product if applicable
     state: text('state').notNull().default('draft'),
+    negotiation_status: text('negotiation_status').notNull().default('idle'), // draft|negotiating|approved|expired
     rfq_number: text('rfq_number').notNull(),
     target_ship_date: timestamp('target_ship_date'),
     sku_count: text('sku_count'),
+    total_qty: text('total_qty'),
+    notes: text('notes'),
+    created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const rfqItems = pgTable('rfq_items', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    rfq_id: uuid('rfq_id').notNull().references(() => rfqs.id),
+    product_id: uuid('product_id').notNull().references(() => products.id),
+    quantity: text('quantity').notNull(),
+    target_price: text('target_price'),
+    agreed_price: text('agreed_price'),
+    moq_satisfied: text('moq_satisfied').default('false'),
     created_at: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -192,5 +242,94 @@ export const orders = pgTable('orders', {
     eta: timestamp('eta'),
     expedite_fee: text('expedite_fee'),
     carrier_status: text('carrier_status'),
+    created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const orderItems = pgTable('order_items', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    customer_id: uuid('customer_id').notNull().references(() => customers.id),
+    order_id: uuid('order_id').notNull().references(() => orders.id),
+    product_id: uuid('product_id').notNull().references(() => products.id),
+    quantity: text('quantity').notNull(),
+    unit_price: text('unit_price'),
+    created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const allocations = pgTable('allocations', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    customer_id: uuid('customer_id').notNull().references(() => customers.id),
+    order_item_id: uuid('order_item_id').notNull().references(() => orderItems.id),
+    lot_number: text('lot_number').notNull(),
+    quantity: text('quantity').notNull(),
+    status: text('status').notNull().default('reserved'), // reserved|picked|shipped
+    created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const productionLogs = pgTable('production_logs', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    customer_id: uuid('customer_id').notNull().references(() => customers.id),
+    order_id: uuid('order_id').notNull().references(() => orders.id),
+    stage: text('stage').notNull(), // blending|filling|packaging
+    status: text('status').notNull().default('pending'), // pending|in_progress|done
+    notes: text('notes'),
+    created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const orderModificationRequests = pgTable('order_modifications', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    customer_id: uuid('customer_id').notNull().references(() => customers.id),
+    order_id: uuid('order_id').notNull().references(() => orders.id),
+    requested_changes: jsonb('requested_changes').notNull(),
+    status: text('status').notNull().default('pending'), // pending|approved|rejected
+    approval_instance_id: uuid('approval_instance_id').references(() => approvalInstances.id),
+    created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+// 5. Services and R&D Collaboration
+
+export const services = pgTable('services', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: text('name').notNull(),
+    description: text('description'),
+    category: text('category'), // e.g. 'Logistics', 'Quality', 'Design'
+    attach_to: text('attach_to'), // e.g. 'RFQ', 'Order', 'Request'
+    base_price: text('base_price'),
+    is_chargeable: text('is_chargeable').default('false'),
+});
+
+export const serviceAssignments = pgTable('service_assignments', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    customer_id: uuid('customer_id').notNull().references(() => customers.id),
+    service_id: uuid('service_id').notNull().references(() => services.id),
+    entity_type: text('entity_type').notNull(), // 'rfq' or 'order' or 'request'
+    entity_id: uuid('entity_id').notNull(),
+    status: text('status').notNull().default('pending'), // pending|approved|completed
+    price_at_assignment: text('price_at_assignment'),
+    created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const customerServiceOverrides = pgTable('customer_service_overrides', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    customer_id: uuid('customer_id').notNull().references(() => customers.id),
+    service_id: uuid('service_id').notNull().references(() => services.id),
+    custom_price: text('custom_price'),
+    is_enabled: text('is_enabled').default('true'),
+});
+
+export const productFormulas = pgTable('product_formulas', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    product_id: uuid('product_id').notNull().references(() => products.id),
+    version: text('version').notNull(),
+    formula_json: jsonb('formula_json').notNull(),
+    status: text('status').notNull().default('draft'), // draft|active|archived
+    created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const prototypeFeedback = pgTable('prototype_feedback', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    request_id: uuid('request_id').notNull().references(() => requests.id),
+    membership_id: uuid('membership_id').notNull().references(() => memberships.id),
+    feedback_text: text('feedback_text').notNull(),
+    rating: text('rating'), // e.g. 1-5
     created_at: timestamp('created_at').defaultNow().notNull(),
 });

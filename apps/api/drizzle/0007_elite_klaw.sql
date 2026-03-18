@@ -45,8 +45,9 @@ CREATE TABLE IF NOT EXISTS "rfqs" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "outbox_events" ADD COLUMN "status" text DEFAULT 'pending' NOT NULL;--> statement-breakpoint
 ALTER TABLE "requests" ADD COLUMN "deadline" timestamp;--> statement-breakpoint
+ALTER TABLE "orders" ADD COLUMN "expedite_fee" text;--> statement-breakpoint
+ALTER TABLE "orders" ADD COLUMN "carrier_status" text;--> statement-breakpoint
 DO $$ BEGIN
  ALTER TABLE "approval_instances" ADD CONSTRAINT "approval_instances_customer_id_customers_id_fk" FOREIGN KEY ("customer_id") REFERENCES "customers"("id") ON DELETE no action ON UPDATE no action;
 EXCEPTION

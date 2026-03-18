@@ -57,6 +57,55 @@
       "when": 1773169517560,
       "tag": "0007_elite_klaw",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1773772044305,
+      "tag": "0008_wonderful_iceman",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1773772280933,
+      "tag": "0009_curved_mole_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1773772665989,
+      "tag": "0010_brave_wolverine",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1773773090092,
+      "tag": "0011_organic_starhawk",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1773773948619,
+      "tag": "0012_perpetual_vengeance",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "5",
+      "when": 1773774229868,
+      "tag": "0013_wild_abomination",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "5",
+      "when": 1773774629019,
+      "tag": "0014_clammy_tana_nile",
+      "breakpoints": true
     }
   ]
 }

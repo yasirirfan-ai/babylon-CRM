@@ -54,6 +54,7 @@ requestsRouter.post('/', async (req, res) => {
                 subcategory: payload.subcategory,
                 priority: payload.priority,
                 deadline: payload.deadline ? new Date(payload.deadline) : null,
+                product_id: payload.product_id,
                 metadata: payload.metadata,
                 created_by_membership_id: membershipId,
             }).returning();

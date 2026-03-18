@@ -1,4 +1,7 @@
 import { Router } from 'express';
+import { db } from '../../db/index.js';
+import { customers } from '../../db/schema.js';
+import { eq } from 'drizzle-orm';
 
 export const metaRouter = Router();
 
@@ -35,5 +38,22 @@ metaRouter.get('/order-states', (_req, res) => {
 
 metaRouter.get('/request-states', (_req, res) => {
     res.json({ requestStates });
+});
+
+metaRouter.get('/branding', async (req, res) => {
+    try {
+        const customerId = req.tenant!.customerId;
+        const [customer] = await db.select({
+            name: customers.name,
+            logo_url: customers.logo_url,
+            theme_config: customers.theme_config,
+        })
+        .from(customers)
+        .where(eq(customers.id, customerId));
+
+        res.json({ branding: customer || null });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch branding' });
+    }
 });
 

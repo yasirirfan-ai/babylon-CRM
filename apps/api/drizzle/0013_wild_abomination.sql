@@ -1,0 +1,1 @@
+ALTER TABLE "services" ADD COLUMN "attach_to" text;

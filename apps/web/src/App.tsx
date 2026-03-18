@@ -22,6 +22,12 @@ import {
   trackShipment,
   fetchRequestDocuments,
   uploadRequestDocument,
+  negotiateRfq,
+  approveRfqQuotation,
+  requestOrderModification,
+  fetchProductFormula,
+  fetchRequestFeedback,
+  postPrototypeFeedback,
   type RequestItem,
   type ThreadMessage,
   type RfqItem,
@@ -29,6 +35,7 @@ import {
   type NotificationItem,
   type OrderDetail,
   type DocumentItem,
+  type ProductItem,
 } from './api';
 import { useOrderDocuments } from './hooks/useDocuments';
 
@@ -146,6 +153,7 @@ function App() {
   const [meta, setMeta] = useState<{
     orderStates: { state: string; docs: string[]; notes: string }[];
     requestStates: string[];
+    branding: { name: string; logo_url: string; theme_config: any } | null;
   } | null>(null);
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [inventoryEvents, setInventoryEvents] = useState<
@@ -162,12 +170,16 @@ function App() {
 
   const [rfqDetail, setRfqDetail] = useState<{
     rfq: RfqItem;
-    items: { sku: string; qty: number }[];
+    product: ProductItem | null;
+    brand: any | null;
+    items: { id: string; quantity: string; target_price: string; agreed_price: string; product: ProductItem }[];
   } | null>(null);
   const [orderDetail, setOrderDetail] = useState<OrderDetail | null>(null);
   const [serviceAssignments, setServiceAssignments] = useState<
     { serviceId: string; status: string }[]
   >([]);
+  const [rdFormula, setRdFormula] = useState<{ id: string; version: string; formula_json: any; status: string }[]>([]);
+  const [rdFeedback, setRdFeedback] = useState<{ id: string; feedback_text: string; rating: string; created_at: string }[]>([]);
 
   const [comment, setComment] = useState('');
   const [newDocName, setNewDocName] = useState('');
@@ -289,8 +301,17 @@ function App() {
       try {
         const docs = await fetchRequestDocuments(selectedRequestId, auth);
         setRequestDocs(docs);
+        
+        if (selectedRequest?.category === 'rd' || selectedRequest?.category?.includes('Formula')) {
+          const feedback = await fetchRequestFeedback(selectedRequestId);
+          setRdFeedback(feedback.feedback);
+          if (selectedRequest.product_id) {
+            const formulas = await fetchProductFormula(selectedRequest.product_id);
+            setRdFormula(formulas.formulas);
+          }
+        }
       } catch (error: unknown) {
-        console.error('Failed to load request documents', error);
+        console.error('Failed to load request dependencies', error);
       }
     };
 
@@ -445,7 +466,7 @@ function App() {
     if (!selectedOrderId || !selectedServiceId) return;
 
     try {
-      const response = await assignService(selectedOrderId, selectedServiceId);
+      const response = await assignService(selectedOrderId, selectedServiceId, 'order');
       setServiceAssignments(response.assignments);
       setSelectedServiceId('');
       setErrors((current) => ({ ...current, action: undefined }));
@@ -537,6 +558,45 @@ function App() {
     if (!newDocName.trim()) return;
     await uploadOrderDoc(newDocName.trim(), orderDetail?.order.state);
     setNewDocName('');
+  };
+
+  const handleNegotiate = async () => {
+    if (!auth || !selectedRfqId) return;
+    const notes = window.prompt('Enter negotiation notes / target price details:');
+    if (notes === null) return;
+    try {
+      await negotiateRfq(selectedRfqId, notes, auth);
+      const detail = await fetchRfqDetail(selectedRfqId, auth);
+      setRfqDetail(detail);
+      await loadWorkspace(auth);
+    } catch (e) {
+      alert('Failed to start negotiation');
+    }
+  };
+
+  const handleApproveQuotation = async () => {
+    if (!auth || !selectedRfqId) return;
+    if (!window.confirm('Are you sure you want to approve this quotation? This will move it to Ordered state.')) return;
+    try {
+      await approveRfqQuotation(selectedRfqId, auth);
+      const detail = await fetchRfqDetail(selectedRfqId, auth);
+      setRfqDetail(detail);
+      await loadWorkspace(auth);
+    } catch (e) {
+      alert('Failed to approve quotation');
+    }
+  };
+  const handleRequestMod = async () => {
+    if (!auth || !selectedOrderId) return;
+    const changes = window.prompt('Describe the modification (e.g. "Split lot A into two"):');
+    if (!changes) return;
+    try {
+      await requestOrderModification(selectedOrderId, { note: changes }, auth);
+      alert('Modification request submitted for internal approval.');
+      if (auth) await loadWorkspace(auth);
+    } catch (e) {
+      alert('Failed to submit modification request.');
+    }
   };
 
   const renderDashboard = () => (
@@ -863,6 +923,58 @@ function App() {
           </article>
         </div>
 
+        { (selectedRequest.category === 'rd' || selectedRequest.category?.includes('Formula')) && (
+          <div className="detail-grid">
+            <article className="detail-card">
+              <h4>Formula Version Control</h4>
+              <div className="list-table">
+                {rdFormula.map((f) => (
+                  <div key={f.id} className="list-row">
+                    <span className="badge">{f.status}</span>
+                    <span className="row-main">Version {f.version}</span>
+                    <span className="row-meta">
+                      {Object.keys(f.formula_json).length} components
+                    </span>
+                  </div>
+                ))}
+                {rdFormula.length === 0 && <p className="empty-state">No formulas linked yet.</p>}
+              </div>
+            </article>
+
+            <article className="detail-card">
+              <h4>Prototype Feedback</h4>
+              <div className="list-table">
+                {rdFeedback.map((f) => (
+                  <div key={f.id} className="list-row">
+                    <span className="row-main">{f.feedback_text}</span>
+                    <span className="row-meta">Rating: {f.rating}/5 | {formatDate(f.created_at)}</span>
+                  </div>
+                ))}
+                {rdFeedback.length === 0 && <p className="empty-state">No feedback yet.</p>}
+              </div>
+              <div className="composer" style={{ marginTop: '1rem' }}>
+                <textarea
+                  placeholder="Share feedback on this prototype..."
+                  className="text-input"
+                  style={{ width: '100%', marginBottom: '0.5rem' }}
+                  onKeyDown={async (e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      const val = (e.target as HTMLTextAreaElement).value;
+                      if (!val.trim()) return;
+                      await postPrototypeFeedback(selectedRequest.id, val.trim(), '5');
+                      (e.target as HTMLTextAreaElement).value = '';
+                      const updated = await fetchRequestFeedback(selectedRequest.id);
+                      setRdFeedback(updated.feedback);
+                    }
+                  }}
+                />
+                <p className="muted" style={{ fontSize: '0.7rem' }}>Press Enter to post feedback</p>
+              </div>
+            </article>
+          </div>
+        )}
+
         <article className="detail-card">
           <h4>Conversation</h4>
           <div className="thread-panel">
@@ -903,7 +1015,14 @@ function App() {
         {rfqs.map((rfq) => (
           <button key={rfq.id} className="list-row clickable" onClick={() => openRfqDetail(rfq.id)}>
             <span className="badge">{rfq.state}</span>
-            <span className="row-main">{rfq.rfq_number}</span>
+            <span className="row-main">
+              {rfq.rfq_number}
+              {rfq.product && (
+                <span className="muted" style={{ marginLeft: '1rem', fontSize: '0.9rem' }}>
+                  {rfq.brand?.name} | {rfq.product.name}
+                </span>
+              )}
+            </span>
             <span className="row-meta">{formatDate(rfq.created_at)}</span>
           </button>
         ))}
@@ -932,28 +1051,53 @@ function App() {
               Back to RFQs
             </button>
             <h3 className="section-title">{rfqDetail.rfq.rfq_number}</h3>
+            {rfqDetail.product && (
+              <p className="brand-tag" style={{ margin: '0.5rem 0' }}>
+                {rfqDetail.brand?.name} - {rfqDetail.product.name} ({rfqDetail.product.sku})
+              </p>
+            )}
             <p className="muted">
-              State: {rfqDetail.rfq.state} | Target ship date:{' '}
-              {formatDate(rfqDetail.rfq.target_ship_date || null)}
+              State: {rfqDetail.rfq.state} | Negotiation: <span className="badge">{rfqDetail.rfq.negotiation_status}</span>
             </p>
+          </div>
+          <div className="action-row">
+            {auth?.actor === 'customer' && (rfqDetail.rfq.negotiation_status === 'draft' || rfqDetail.rfq.negotiation_status === 'negotiating') && (
+              <button className="inline-btn" onClick={handleNegotiate}>
+                Request Negotiation
+              </button>
+            )}
+            {auth?.actor === 'customer' && rfqDetail.rfq.state === 'pending_approval' && (
+              <button className="inline-btn" onClick={handleApproveQuotation}>
+                Approve Quotation
+              </button>
+            )}
           </div>
         </div>
 
         {errors.rfq && <p className="banner-error">{errors.rfq}</p>}
 
-        <article className="detail-card">
-          <h4>RFQ Items</h4>
-          <ul className="simple-list">
-            {rfqDetail.items.map((item, index) => (
-              <li key={`${item.sku}-${index}`}>
-                <span>{item.sku}</span>
-                <span>Qty: {item.qty}</span>
-              </li>
-            ))}
-            {rfqDetail.items.length === 0 && <li>No line items available.</li>}
-          </ul>
-          <p className="muted">SKU count (summary): {rfqDetail.rfq.sku_count || '-'}</p>
-        </article>
+        <div className="detail-main">
+          <article className="detail-card">
+            <h4>RFQ Items</h4>
+            <div className="list-table">
+              {rfqDetail.items.map((item) => (
+                <div key={item.id} className="list-row">
+                  <span className="row-main">{item.product.name}</span>
+                  <span className="row-meta">
+                    Qty: {item.quantity} | Target: ${item.target_price} 
+                    {item.agreed_price && <strong style={{ marginLeft: '1rem', color: 'var(--accent)' }}>Agreed: ${item.agreed_price}</strong>}
+                  </span>
+                </div>
+              ))}
+              {rfqDetail.items.length === 0 && <p className="empty-state">No line items available.</p>}
+            </div>
+          </article>
+
+          <article className="detail-card">
+            <h4>Negotiation Notes</h4>
+            <p className="muted">{rfqDetail.rfq.notes || 'No active negotiation notes.'}</p>
+          </article>
+        </div>
       </section>
     );
   };
@@ -1026,20 +1170,56 @@ function App() {
                   <p style={{ color: 'var(--accent)' }}><strong>Expedite Fee:</strong> {orderDetail.order.expedite_fee}</p>
                 )}
               </div>
-              {orderDetail.order.tracking_number && (
-                <div style={{ textAlign: 'right' }}>
-                  <p><strong>Tracking:</strong> {orderDetail.order.tracking_number}</p>
-                  <p><small className="muted">{orderDetail.order.carrier_status || 'In Transit'}</small></p>
-                  <button className="inline-btn light" onClick={async () => {
-                    try {
-                      const track = await trackShipment(orderDetail.order.id, auth!);
-                      alert(`Latest Status: ${track.tracking.carrierStatus}\nLocation: ${track.tracking.events[0].location}`);
-                    } catch (e) { alert('Tracking service unavailable'); }
-                  }}>
-                    Track via Unishippers
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                {auth?.actor === 'customer' && (
+                  <button className="inline-btn" onClick={handleRequestMod}>
+                    Request Modification
                   </button>
+                )}
+                {orderDetail.order.tracking_number && (
+                  <div style={{ textAlign: 'right' }}>
+                    <p><strong>Tracking:</strong> {orderDetail.order.tracking_number}</p>
+                    <p><small className="muted">{orderDetail.order.carrier_status || 'In Transit'}</small></p>
+                    <button className="inline-btn light" onClick={async () => {
+                      try {
+                        const track = await trackShipment(orderDetail.order.id, auth!);
+                        alert(`Latest Status: ${track.tracking.carrierStatus}\nLocation: ${track.tracking.events[0].location}`);
+                      } catch (e) { alert('Tracking service unavailable'); }
+                    }}>
+                      Track via Unishippers
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </article>
+
+          <article className="detail-card">
+            <h4>Order Items</h4>
+            <div className="list-table">
+              {orderDetail.items.map((item) => (
+                <div key={item.id} className="list-row">
+                  <span className="row-main">{item.product.name}</span>
+                  <span className="row-meta">
+                    Qty: {item.quantity} | Unit Price: ${item.unit_price}
+                  </span>
                 </div>
-              )}
+              ))}
+              {orderDetail.items.length === 0 && <p className="empty-state">No items in this order.</p>}
+            </div>
+          </article>
+
+          <article className="detail-card">
+            <h4>Production Visibility</h4>
+            <div className="list-table">
+               {orderDetail.production_logs.map((log) => (
+                 <div key={log.id} className="list-row">
+                   <span className="badge">{log.status}</span>
+                   <span className="row-main">{log.stage.toUpperCase()}</span>
+                   <span className="row-meta">{log.notes} | {formatDateTime(log.created_at)}</span>
+                 </div>
+               ))}
+               {orderDetail.production_logs.length === 0 && <p className="empty-state">No production logs available.</p>}
             </div>
           </article>
           <div className="detail-grid">
@@ -1126,10 +1306,10 @@ function App() {
               <h4>Allocations</h4>
               <ul className="simple-list">
                 {orderDetail.allocations.map((allocation) => (
-                  <li key={allocation.lot}>
-                    <span>{allocation.lot}</span>
+                  <li key={allocation.id}>
+                    <span>{allocation.lot_number}</span>
                     <span>
-                      {allocation.status} | Qty {allocation.qty}
+                      {allocation.status} | Qty {allocation.quantity}
                     </span>
                   </li>
                 ))}
@@ -1138,7 +1318,7 @@ function App() {
 
               <h4>Shipments</h4>
               <ul className="simple-list">
-                {orderDetail.shipments.map((shipment, index) => (
+                {orderDetail.shipments?.map((shipment, index) => (
                   <li key={`${shipment.tracking}-${index}`}>
                     <span>{shipment.carrier}</span>
                     <span>
@@ -1146,7 +1326,7 @@ function App() {
                     </span>
                   </li>
                 ))}
-                {orderDetail.shipments.length === 0 && <li>No shipment records.</li>}
+                {!orderDetail.shipments && <li>No shipment records.</li>}
               </ul>
 
               <h4>Inventory Events</h4>
@@ -1287,10 +1467,10 @@ function App() {
 
   return (
     <div className="crm-shell">
-      <aside className="sidebar">
+      <aside className="sidebar" style={{ backgroundColor: meta?.branding?.theme_config?.sidebarColor }}>
         <div className="brand-block">
-          <img src={logo} alt="Babylon" />
-          <p>Babylon CRM</p>
+          <img src={meta?.branding?.logo_url || logo} alt="Portal" />
+          <p>{meta?.branding?.name || 'Babylon CRM'}</p>
         </div>
 
         <nav className="nav-group">
