@@ -4,10 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "node ../../node_modules/vite/bin/vite.js",
-    "build": "tsc -b && node ../../node_modules/vite/bin/vite.js build --outDir ../../dist",
+    "dev": "vite",
+    "build": "tsc -b && vite build --outDir ../../dist",
     "lint": "eslint .",
-    "preview": "node ../../node_modules/vite/bin/vite.js preview"
+    "preview": "vite preview"
   },
   "dependencies": {
     "react": "^19.2.0",
